@@ -102,7 +102,7 @@ def test_web_pivot_refreshes_in_microsoft_excel(tmp_path):
     import subprocess
     from test_analysis import row
     f=fixture()
-    f['scrap']['records'].extend([row(qty=7,error='2'),row(qty=3,error='10')])
+    f['scrap']['records'].extend([row(qty=7,error='2'),row(qty=3,error='10'),row(qty=4,error='Belirsiz')])
     r=analyze(f,opts())
     with zipfile.ZipFile(io.BytesIO(export_zip(r))) as z:
         for name in z.namelist():
@@ -118,7 +118,7 @@ try:
     try:
         pivot=book.Worksheets('Hata Kodu Pivot').PivotTables(1)
         assert pivot.RefreshTable()
-        assert pivot.GetPivotData('Toplam Hurda').Value==35
+        assert pivot.GetPivotData('Toplam Hurda').Value==39
         assert pivot.GetPivotData('Toplam Hurda','Hata Kodu',2).Value==7
         assert pivot.GetPivotData('Toplam Hurda','Hata Kodu',10).Value==3
         assert book.Worksheets('Hata Kodu Pivot').Cells(2,2).Value==2

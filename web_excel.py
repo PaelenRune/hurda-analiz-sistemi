@@ -51,7 +51,7 @@ def add_pivot(data,rows,group,pivot_index):
         if i==4:si.attrib.update(containsSemiMixedTypes='0',containsString='0',containsNumber='1')
         if i==3:
             numbers=[v for v in shared[i] if isinstance(v,int)]
-            if numbers:si.attrib.update(containsNumber='1',containsInteger='1',containsString='1' if len(numbers)<len(shared[i]) else '0',containsSemiMixedTypes='1' if len(numbers)<len(shared[i]) else '0',minValue=str(min(numbers)),maxValue=str(max(numbers)))
+            if numbers:si.attrib.update(containsNumber='1',containsInteger='1',containsString='1' if len(numbers)<len(shared[i]) else '0',containsMixedTypes='1' if len(numbers)<len(shared[i]) else '0',containsSemiMixedTypes='1' if len(numbers)<len(shared[i]) else '0',minValue=str(min(numbers)),maxValue=str(max(numbers)))
         if i==6:si.set('containsBlank','1')
         for v in shared[i]:child(si,'n' if isinstance(v,int) else 's',v=v)
     records=element('pivotCacheRecords',count=len(rows))
@@ -117,7 +117,9 @@ def workbook(result,group,pareto=False):
     pct=book.add_format({'num_format':'0.00%'})
     total=book.add_format({'bold':True,'bg_color':'#DFE9F6','num_format':'#,##0.######','top':1})
     def sheet(name,headers):
-        s=book.add_worksheet(name);s.hide_gridlines(2);s.freeze_panes(1,1);s.set_column(0,0,24);s.set_column(1,len(headers)-1,18,num);s.set_row(0,34);s.write_row(0,0,headers,head);s.set_landscape();s.fit_to_pages(1,0);s.repeat_rows(0);return s
+        s=book.add_worksheet(name);s.hide_gridlines(2);s.freeze_panes(1,1);s.set_column(0,0,24)
+        if len(headers)>1:s.set_column(1,len(headers)-1,18,num)
+        s.set_row(0,34);s.write_row(0,0,headers,head);s.set_landscape();s.fit_to_pages(1,0);s.repeat_rows(0);s.set_header(f"&C{group['name']} · {result['year']} · {' / '.join(result['vouchers'])}");return s
     rows=[r for r in result['detail'] if r['code'].startswith(group['group'])]
     cable=group['group']=='202'
     if not pareto:
@@ -153,6 +155,9 @@ def workbook(result,group,pareto=False):
                 s.write_formula(i,3,f'=C{i+1}/SUM(C$2:C${len(ordered)+1})',pct,share)
                 s.write_formula(i,4,f'=SUM(D$2:D{i+1})',pct,cumulative);s.write(i,5,costs[e],money)
             if ordered:
+                end=len(ordered)+1;s.write(end,0,'TOPLAM',total)
+                for col,value in [(2,denom),(3,1),(5,sum(costs.values()))]:
+                    letter=xlsxwriter.utility.xl_col_to_name(col);s.write_formula(end,col,f'=SUM({letter}2:{letter}{end})',pct if col==3 else total,value)
                 chart=book.add_chart({'type':'column'});chart.add_series({'name':'Hurda payı','categories':[name,1,0,len(ordered),0],'values':[name,1,3,len(ordered),3]})
                 line=book.add_chart({'type':'line'});line.add_series({'name':'Kümülatif','categories':[name,1,0,len(ordered),0],'values':[name,1,4,len(ordered),4],'y2_axis':True,'marker':{'type':'circle'}});chart.combine(line);chart.set_y_axis({'num_format':'0%','min':0,'max':1});chart.set_y2_axis({'num_format':'0%','min':0,'max':1});chart.set_title({'name':f"{group['name']} · {name} · Pareto"});s.insert_chart('H2',chart)
         else:
