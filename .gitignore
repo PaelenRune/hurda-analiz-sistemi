@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.log
+outputs/
+.runtime/
+template_files/
+*.xls
+*.xlsx
+*.csv
+*.zip
+*.rar
+.env
+.env.*
+!.env.example
+__pycache__/

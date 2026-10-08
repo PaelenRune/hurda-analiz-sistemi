@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hurda Analiz</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<body data-web-mode="{{ 'true' if web_mode else 'false' }}">
+<aside class="sidebar">
+ <a class="brand" href="/"><span class="brand-mark">h.</span><span>Hurda<span class="brand-sub">ANALİZ ÇALIŞMA ALANI</span></span></a>
+ <div class="step-label">01 / VERİ KAYNAKLARI</div>
+ <h2>Girdileri yükle</h2><p class="muted">Beş kaynağı ayrı alanlara ekleyin.<br>XLS ve XLSX desteklenir.</p>
+ <div id="uploads"></div>
+ <label class="no-fragment"><input type="checkbox" id="no-fragment"> Bu dönem parçalanmış hurda yok</label>
+ <div id="upload-notes" class="small muted"></div>
+ <div class="privacy"><span class="status-dot"></span> Oturum içinde çalışır<p>Girdiler kalıcı hafızaya kaydedilmez. Excel çıktısı yalnızca dışa aktardığınızda oluşturulur.</p></div>
+ <button id="reset" class="text-button">Oturumu temizle</button>
+ {% if web_mode %}<button id="logout" class="text-button">Verileri temizle ve çıkış yap</button>{% endif %}
+</aside>
+<main>
+ <header><div><div class="eyebrow">ÜRETİM / MALZEME KAYBI</div><h1>Hurda analizi</h1><p class="muted">Miktarı, maliyeti ve hata nedenlerini birlikte inceleyin.</p></div><span id="session-status" class="pill">Dosyalar bekleniyor</span></header>
+ <section class="filters card">
+  <div class="section-top"><div><div class="step-label">02 / ANALİZ KAPSAMI</div><h2>Dönem ve filtreler</h2></div><span class="small muted">Yalnızca malzeme maliyeti</span></div>
+  <div class="filter-grid"><label class="field">Yıl<input id="year" type="number" min="2000" max="2100" value="2026"></label><div><span class="field-label">Fiş grupları</span><div class="chips" id="voucher-filters"></div></div><div><span class="field-label">Stok grupları</span><div class="chips" id="group-filters"></div></div></div>
+  <span class="field-label">Aylar</span><div class="months" id="month-filters"></div>
+  <details class="advanced"><summary>Parçalanmış veri dönemi ve PPM hedefleri</summary><div class="advanced-grid">
+   <label class="field">Parçalanmış veri yılı<input id="fragment-year" type="number" value="2026"></label>
+   <label class="field">Parçalanmış veri ayı<select id="fragment-month"></select></label>
+   <label class="field">Fiş grubu yoksa<select id="fragment-voucher"><option>Y</option><option>Ç</option><option>HRD</option></select></label>
+   <label class="field">Kablo hedef PPM<input id="target-202" type="number" min="0" placeholder="İsteğe bağlı"></label>
+   <label class="field">Terminal hedef PPM<input id="target-204" type="number" min="0" placeholder="İsteğe bağlı"></label>
+   <label class="field">IDC hedef PPM<input id="target-206" type="number" min="0" placeholder="İsteğe bağlı"></label>
+  </div><p class="small muted">Dosyadaki dönem ve fiş bilgileri önceliklidir. Bu seçimler yalnızca eksik alanlar için kullanılır. Hedefler girilmezse hedef çizgisi gösterilmez.</p></details>
+  <div class="filter-footer"><span id="scope-label" class="small muted">Girdilerinizi yükleyerek başlayın.</span><button id="analyze" class="primary">Analizi başlat <span>↗</span></button></div>
+ </section>
+ <div id="notice" role="status" hidden></div>
+ <section id="empty" class="empty-state"><div class="empty-visual"><span></span><span></span><span></span><span></span><span></span></div><h2>Veriden sonuca, tek çalışma alanı.</h2><p>Girdiler yüklendiğinde seçtiğiniz kapsamla analiz başlar.<br>Stok detayları, hata kodu pivotları ve grafikler burada görünür.</p><div class="empty-tags"><span>202 · Kablo</span><span>204 · Terminal</span><span>206 · IDC</span></div></section>
+ <section id="results" hidden>
+  <div class="results-heading"><div><div class="step-label">03 / ANALİZ SONUÇLARI</div><h2 id="result-title">Dönem özeti</h2><p id="result-context" class="muted small"></p></div><div class="export-actions"><button id="print-charts" class="secondary">Grafikleri yazdır / indir</button><button id="excel" class="primary">Excel olarak dışa aktar</button></div></div>
+  <div id="kpis" class="kpi-grid"></div>
+  <div id="issues" class="issues" hidden></div>
+  <div class="results-toolbar"><div id="group-tabs" class="tabs"></div><input id="search" type="search" placeholder="Stok kodu veya adı ara…" aria-label="Stok kodu veya adı ara"></div>
+  <div id="view-tabs" class="view-tabs"><button data-view="stocks" class="active">Stok detayları</button><button data-view="pivot">Hata kodu pivotu</button><button data-view="pareto">Pareto</button><button data-view="monthly">Aylık PPM</button></div>
+  <div id="table-area" class="card table-container"></div>
+  <div class="chart-grid"><article class="card chart-card"><div class="section-top"><h3>Aylık PPM</h3><button class="text-button download-one" data-kind="ppm">PNG indir</button></div><img id="ppm-chart" alt="Aylık PPM grafiği"></article><article class="card chart-card"><div class="section-top"><h3>Hata nedenleri</h3><button class="text-button download-one" data-kind="pareto">PNG indir</button></div><img id="pareto-chart" alt="Hata nedenleri Pareto grafiği"></article></div>
+  <details class="card audit"><summary>Hesaplama açıklamaları ve veri kontrolleri</summary><div id="audit-content"></div></details>
+ </section>
+ <footer>Hurda Analiz <span>Seçilen stokların tüketimi · Aylık son maliyet · Beş aylık mod geçmişi</span></footer>
+</main>
+<dialog id="missing-dialog"><div class="modal-label">VERİ KONTROLÜ</div><h2>Eksik veriler bulundu</h2><p id="missing-message"></p><div id="missing-list" class="modal-list"></div><p class="small muted">Evet seçilirse listelenen stoklar ilgili ayın hurda, maliyet ve PPM hesabından çıkarılır.</p><div class="modal-actions"><button id="missing-no" class="secondary">Hayır, geri dön</button><button id="missing-yes" class="primary">Evet, hariç tut ve devam et</button></div></dialog>
+<dialog id="charts-dialog"><div class="modal-label">GRAFİK ÇIKTILARI</div><h2>Grafikleri dışa aktar</h2><p class="muted">PDF yazdırmaya, PNG görselleri paylaşmaya uygundur.</p><label class="field">Grafik seçimi<select id="chart-selection"></select></label><div class="modal-actions"><button id="close-charts" class="secondary">Kapat</button><button id="download-png" class="secondary">PNG indir</button><button id="download-pdf" class="primary">PDF indir</button></div></dialog>
+</body></html>

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hurda-analiz-sistemi
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 240 --access-logfile /dev/null
+    healthCheckPath: /health
+    envVars:
+      - key: APP_MODE
+        value: web
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_PASSWORD_HASH
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: MPLCONFIGDIR
+        value: /tmp/matplotlib

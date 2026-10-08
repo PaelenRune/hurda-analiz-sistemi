@@ -1,0 +1,8 @@
+Flask>=3.1,<4
+openpyxl>=3.1,<4
+xlrd>=2,<3
+matplotlib>=3.9,<4
+pywin32>=308; sys_platform == 'win32'
+pytest>=8,<10
+XlsxWriter>=3.2,<4
+gunicorn>=23,<24; sys_platform != 'win32'
