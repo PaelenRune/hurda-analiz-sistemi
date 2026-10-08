@@ -41,14 +41,15 @@ def test_memory_parser_and_multipart_never_spool(monkeypatch):
     monkeypatch.setattr(tempfile,'NamedTemporaryFile',forbidden)
     book=openpyxl.Workbook();s=book.active
     s.append(['Stok Kodu','Gramaj'])
-    for i in range(25000):s.append([f'202{i:06}',4])
+    for i in range(70000):s.append([f'202{i:06}',4])
     data=io.BytesIO();book.save(data);data.seek(0)
-    assert len(parse_file(data,'weights',filename='weights.xlsx')['records'])==25000
+    assert len(data.getvalue())>512000  # Cross Werkzeug's normal disk-spooling threshold.
+    assert len(parse_file(data,'weights',filename='weights.xlsx')['records'])==70000
     data.seek(0)
     with app.test_client() as client:
         response=client.post('/api/upload/weights',data={'file':(data,'weights.xlsx')})
         assert response.status_code==200
-        assert response.json['count']==25000
+        assert response.json['count']==70000
 
 def test_web_auth_isolation_csrf_logout_and_no_cache(monkeypatch):
     from app import app, STATE, LOGIN_ATTEMPTS
