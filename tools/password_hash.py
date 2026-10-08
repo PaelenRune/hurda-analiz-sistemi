@@ -10,7 +10,7 @@ if __name__=='__main__':
     if password!=getpass('Şifre tekrar: '):raise SystemExit('Şifreler uyuşmuyor.')
     hashed=generate_password_hash(password)
     if sys.platform=='win32':
-        subprocess.run(['powershell','-NoProfile','-Command','$input | Set-Clipboard'],input=hashed,text=True,check=True)
+        subprocess.run(['powershell','-NoProfile','-Command','Set-Clipboard -Value ([Console]::In.ReadToEnd().Trim())'],input=hashed,text=True,check=True)
         print('Şifre özeti panoya kopyalandı. Render APP_PASSWORD_HASH alanına Ctrl+V ile yapıştırın.')
         print('Düz şifrenizi sohbete yazmayın. Siteye girişte belirlediğiniz düz şifreyi kullanacaksınız.')
     else:

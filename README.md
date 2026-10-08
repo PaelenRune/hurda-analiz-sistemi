@@ -10,7 +10,7 @@ Beş Excel girdisi üzerinden Y / Ç / HRD fişlerini ve 202 / 204 / 206 stoklar
 
 Python/Flask sunucusu gerektirir; GitHub Pages üzerinde çalışmaz. `render.yaml` Render dağıtım tanımıdır. Render'da **New → Blueprint** ile bu özel depoyu bağlayın. Kaynak kod erişimini yalnızca bu depoyla sınırlayın. Kalıcı disk veya veritabanı eklemeyin.
 
-1. Yerel ortamda `python tools/password_hash.py` çalıştırın; site şifresini gizli giriş alanında iki kez girin.
+1. Yerel ortamda `python tools/password_hash.py` çalıştırın; site şifresini gizli giriş alanında iki kez girin. Windows'ta özet otomatik panoya kopyalanır; `tools/SifreHazirla.ps1` de aynı aracı açar.
 2. Üretilen hash'i Render ortamında `APP_PASSWORD_HASH` değerine girin. Düz şifreyi veya hash'i GitHub'a koymayın. Şifreyi yalnızca erişmesini istediğiniz kişilerle paylaşın.
 3. Blueprint `SECRET_KEY` değerini otomatik üretir. Başlangıç komutu tek Gunicorn işlemi kullanır; oturumlar RAM'de olduğundan işlem sayısını artırmayın.
 4. Yayın tamamlandığında HTTPS adresini açın. `/health` uç noktası yalnızca servis sağlığını döndürür.
