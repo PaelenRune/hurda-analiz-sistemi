@@ -61,24 +61,39 @@ def test_web_auth_isolation_csrf_logout_and_no_cache(monkeypatch):
     assert a.get('/',base_url='https://example.com').status_code==302
     assert a.get('/health',base_url='https://example.com').status_code==200
     assert a.get('/api/state',base_url='https://example.com').status_code==401
-    assert a.post('/login',base_url='https://example.com',data={'password':'wrong'},headers=origin).status_code==401
-    login=a.post('/login',base_url='https://example.com',data={'password':'test-password-123'},headers=origin)
+    page=a.get('/login',base_url='https://example.com')
+    assert b'name="csrf_token"' in page.data
+    with a.session_transaction(base_url='https://example.com') as s:login_token=s['csrf_token']
+    assert a.post('/login',base_url='https://example.com',data={'password':'test-password-123'},headers=origin).status_code==403
+    b.get('/login',base_url='https://example.com')
+    with b.session_transaction(base_url='https://example.com') as s:foreign_token=s['csrf_token']
+    assert a.post('/login',base_url='https://example.com',data={'password':'test-password-123','csrf_token':foreign_token},headers=origin).status_code==403
+    # Browser proxies can rewrite Origin; a session-bound token still verifies the form.
+    assert a.post('/login',base_url='https://example.com',data={'password':'wrong','csrf_token':login_token},headers={'Origin':'https://browser-proxy.example'}).status_code==401
+    login=a.post('/login',base_url='https://example.com',data={'password':'test-password-123','csrf_token':login_token},headers={'Origin':'https://browser-proxy.example'})
     assert login.status_code==302
+    page=a.get('/',base_url='https://example.com')
+    assert b'name="csrf-token"' in page.data
     a.get('/api/state',base_url='https://example.com')
     with a.session_transaction(base_url='https://example.com') as s:
-        assert set(s)=={'authenticated','id'}
+        assert set(s)=={'authenticated','id','csrf_token'}
+        token=s['csrf_token']
+        assert token!=login_token
         STATE[s['id']]['inputs']=fixture()
+    secured={'Origin':'https://browser-proxy.example','X-CSRF-Token':token}
     assert a.post('/api/analyze',base_url='https://example.com',json=opts(),headers={'Origin':'https://evil.example'}).status_code==403
     assert a.post('/api/analyze',base_url='https://example.com',json=opts()).status_code==403
-    assert a.post('/api/analyze',base_url='https://example.com',json=opts(),headers=origin).status_code==200
-    export=a.post('/api/export/excel',base_url='https://example.com',headers=origin)
+    assert a.post('/api/analyze',base_url='https://example.com',json=opts(),headers={**origin,'X-CSRF-Token':foreign_token}).status_code==403
+    assert a.post('/api/analyze',base_url='https://example.com',json=opts(),headers=secured).status_code==200
+    export=a.post('/api/export/excel',base_url='https://example.com',headers=secured)
     assert export.status_code==200 and export.data.startswith(b'PK')
     assert 'no-store' in export.headers['Cache-Control']
     assert b.get('/api/state',base_url='https://example.com').status_code==401
-    assert a.post('/api/reset',base_url='https://example.com',headers=origin).status_code==200
+    assert a.post('/api/reset',base_url='https://example.com',headers=secured).status_code==200
     assert a.get('/api/state',base_url='https://example.com').json['files']=={}
-    assert a.post('/api/logout',base_url='https://example.com',headers=origin).status_code==200
+    assert a.post('/api/logout',base_url='https://example.com',headers=secured).status_code==200
     assert a.get('/api/state',base_url='https://example.com').status_code==401
+    assert a.post('/api/reset',base_url='https://example.com',headers=secured).status_code==403
 
 def test_idle_session_drops_input_data(monkeypatch):
     from app import app, STATE
@@ -94,8 +109,10 @@ def test_web_wrong_password_rate_limit(monkeypatch):
     monkeypatch.setitem(app.config,'PASSWORD_HASH',generate_password_hash('test-password-123'))
     LOGIN_ATTEMPTS.clear()
     c=app.test_client()
-    for _ in range(10):assert c.post('/login',data={'password':'wrong'},headers={'Origin':'http://localhost'}).status_code==401
-    assert c.post('/login',data={'password':'wrong'},headers={'Origin':'http://localhost'}).status_code==429
+    c.get('/login')
+    with c.session_transaction() as s:token=s['csrf_token']
+    for _ in range(10):assert c.post('/login',data={'password':'wrong','csrf_token':token}).status_code==401
+    assert c.post('/login',data={'password':'wrong','csrf_token':token}).status_code==429
     LOGIN_ATTEMPTS.clear()
 
 @pytest.mark.skipif(sys.platform!='win32' or not importlib.util.find_spec('win32com'),reason='Native Excel validation requires Windows')

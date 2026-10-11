@@ -32,6 +32,13 @@ STATE={};LOCK=threading.RLock()
 LOGIN_ATTEMPTS={}
 ROLES={'scrap','consumption','weights','costs','fragmented'}
 
+def csrf_token():
+    if not app.config['WEB_MODE']:return ''
+    return session.setdefault('csrf_token',secrets.token_urlsafe(32))
+
+@app.context_processor
+def csrf_context():return {'csrf_token':csrf_token}
+
 def state():
     with LOCK:
         now=time.monotonic()
@@ -46,10 +53,17 @@ def state():
 def local_requests():
     if not app.config['WEB_MODE'] and request.host.split(':')[0] not in ('127.0.0.1','localhost'):return jsonify(error='Yerel bağlantı gerekli.'),403
     if request.method not in ('GET','HEAD','OPTIONS'):
-        origin=request.headers.get('Origin')
-        from urllib.parse import urlsplit
-        if origin and urlsplit(origin).netloc!=request.host:return jsonify(error='Geçersiz istek kaynağı.'),403
-        if app.config['WEB_MODE'] and not origin:return jsonify(error='İstek kaynağı gerekli.'),403
+        if app.config['WEB_MODE']:
+            expected=session.get('csrf_token','')
+            supplied=request.form.get('csrf_token','') if request.endpoint=='login' else request.headers.get('X-CSRF-Token','')
+            if not expected or not supplied or not secrets.compare_digest(expected.encode(),supplied.encode()):
+                error='Sayfa oturumu geçersiz veya süresi dolmuş. Sayfayı yenileyip tekrar deneyin.'
+                if request.endpoint=='login':return render_template('login.html',error=error),403
+                return jsonify(error=error),403
+        else:
+            origin=request.headers.get('Origin')
+            from urllib.parse import urlsplit
+            if origin and urlsplit(origin).netloc!=request.host:return jsonify(error='Geçersiz istek kaynağı.'),403
     if app.config['WEB_MODE'] and request.endpoint not in ('login','health','static') and not session.get('authenticated'):
         if request.path.startswith('/api/'):return jsonify(error='Oturum açmanız gerekiyor.'),401
         return redirect(url_for('login'))
@@ -184,8 +198,10 @@ def excel_export():
 def reset():
     with LOCK:STATE.pop(session.get('id'),None)
     authenticated=session.get('authenticated')
+    token=session.get('csrf_token')
     session.clear()
     if authenticated:session['authenticated']=True
+    if token:session['csrf_token']=token
     return jsonify(ok=True)
 
 if __name__=='__main__':

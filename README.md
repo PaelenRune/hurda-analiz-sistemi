@@ -24,7 +24,7 @@ Python/Flask sunucusu gerektirir; GitHub Pages üzerinde çalışmaz. `render.ya
 - Web oturumu 30 dakika kullanılmazsa en geç sonraki 30 saniyelik temizlikte veriler RAM'den çıkarılır. Çıkış/Oturumu temizle düğmeleri anında temizler. Sunucu yeniden başladığında veriler kaybolur.
 - Sekmeyi kapatmak sunucunun hemen haberdar olmasını garanti etmez; hemen temizlemek için çıkış düğmesini kullanın.
 - Web Excel/PDF/PNG çıktıları RAM'de oluşturulup tarayıcıya gönderilir; sunucuda çıktı klasörü oluşmaz. İndirilen dosyalar kendi cihazınızda kalır.
-- Çerez yalnızca imzalı erişim bilgisi ve rastgele oturum kimliği içerir. Excel veya analiz verisi içermez. Yanıtlar `Cache-Control: no-store` kullanır.
+- Çerez yalnızca imzalı erişim bilgisi, rastgele oturum kimliği ve CSRF güvenlik belirteci içerir. Excel veya analiz verisi içermez. Yanıtlar `Cache-Control: no-store` kullanır. Formlar ve değişiklik yapan API istekleri oturuma bağlı CSRF belirteciyle doğrulanır.
 - Uygulama hata günlüklerine dosya içeriği, maliyet, stok kodu veya şifre yazmaz. Sağlayıcının ağ/erişim günlükleri ve altyapı politikaları kendi kontrolündedir; uygulama sağlayıcının hiç teknik kayıt tutmadığını iddia etmez.
 - Web sürümünde seçilen dosyalar analiz için sunucuya aktarılır. Sunucuya hiç göndermemek istenirse ayrıca tarayıcı içinde çalışan bir sürüm gerekir.
 
