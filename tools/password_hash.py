@@ -15,7 +15,7 @@ def windows_password_window():
     root.resizable(False, False)
     frame = ttk.Frame(root, padding=24)
     frame.pack(fill='both', expand=True)
-    ttk.Label(frame, text='Site şifrenizi iki kez girin (en az 12 karakter).').pack(anchor='w')
+    ttk.Label(frame, text='Site şifrenizi iki kez girin (en az 8 karakter).').pack(anchor='w')
     ttk.Label(frame, text='Yazdığınız karakterler yıldız olarak görünür.').pack(anchor='w', pady=(0, 12))
     ttk.Label(frame, text='Şifre:').pack(anchor='w')
     first = ttk.Entry(frame, show='*', width=48)
@@ -27,8 +27,8 @@ def windows_password_window():
 
     def prepare():
         password = first.get()
-        if len(password) < 12:
-            messagebox.showerror('Şifre', 'Şifre en az 12 karakter olmalı.', parent=root)
+        if len(password) < 8:
+            messagebox.showerror('Şifre', 'Şifre en az 8 karakter olmalı.', parent=root)
             return
         if password != second.get():
             messagebox.showerror('Şifre', 'Şifreler uyuşmuyor.', parent=root)
@@ -56,8 +56,8 @@ def windows_password_window():
 if __name__=='__main__' and sys.platform=='win32':
     windows_password_window()
 elif __name__=='__main__':
-    password=getpass('Site erişim şifresi (en az 12 karakter): ')
-    if len(password)<12:raise SystemExit('Şifre en az 12 karakter olmalı.')
+    password=getpass('Site erişim şifresi (en az 8 karakter): ')
+    if len(password)<8:raise SystemExit('Şifre en az 8 karakter olmalı.')
     if password!=getpass('Şifre tekrar: '):raise SystemExit('Şifreler uyuşmuyor.')
     hashed=generate_password_hash(password)
     print('APP_PASSWORD_HASH değeri:')
