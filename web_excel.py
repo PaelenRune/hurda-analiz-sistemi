@@ -34,7 +34,7 @@ def add_pivot(data,rows,group,pivot_index):
     """Add a refreshable native stock/error PivotTable with cached source rows."""
     if not rows:return data
     headers=['Stok Kodu','Ay','Fiş Grubu','Hata Kodu','Miktar','Kaynak','Orijinal Hata','Mod Ataması']
-    values=[[r['code'],MONTHS[r['month']-1],r['voucher'],error_value(r['error']),r['qty'],r['source'],str(r['original_error'] or ''),'Evet' if r['assigned'] else 'Hayır'] for r in rows]
+    values=[[r['code'],MONTHS[r['month']-1],r['voucher'],error_value(r['error']),r.get('pivot_qty',r['qty']),r['source'],str(r['original_error'] or ''),'Evet' if r['assigned'] else 'Hayır'] for r in rows]
     shared=[]
     for i in range(8):
         items=list(dict.fromkeys(row[i] for row in values)) if i in (0,3) else []
@@ -122,6 +122,8 @@ def workbook(result,group,pareto=False):
         s.set_row(0,34);s.write_row(0,0,headers,head);s.set_landscape();s.fit_to_pages(1,0);s.repeat_rows(0);s.set_header(f"&C{group['name']} · {result['year']} · {' / '.join(result['vouchers'])}");return s
     rows=[r for r in result['detail'] if r['code'].startswith(group['group'])]
     cable=group['group']=='202'
+    factors={s['code']:s['grams']/1000 if cable and group['pareto_unit']=='kg' else 1 for s in group['stocks']}
+    rows=[{**r,'pivot_qty':r['qty']*factors[r['code']]} for r in rows]
     if not pareto:
         summary=sheet('GRAFİK VERİSİ',['Ay',f"Tüketim ({group['unit']})",f"Hurda ({group['unit']})",'PPM','Hedef PPM','Maliyet TL','Maliyet EUR','Veri durumu'])
         for i,m in enumerate(group['monthly'],1):
@@ -186,9 +188,10 @@ def workbook(result,group,pareto=False):
                     letter=xlsxwriter.utility.xl_col_to_name(col);s.write_formula(len(items)+1,col,f'=SUM({letter}2:{letter}{len(items)+1})',total,sum(v[key] for v in items))
     pivot_index=None
     if not pareto:
-        detail=sheet('Hurda Detayı',['Stok Kodu','Ay','Fiş Grubu','Hata Kodu','Miktar','Kaynak','Orijinal Hata','Mod Ataması'])
-        for i,r in enumerate(rows,1):detail.write_row(i,0,[r['code'],MONTHS[r['month']-1],r['voucher'],error_value(r['error']),r['qty'],r['source'],str(r['original_error'] or ''),'Evet' if r['assigned'] else 'Hayır'])
-        pivot=sheet('Hata Kodu Pivot',['Toplam Hurda']);pivot_index=len(book.worksheets())
+        detail=sheet('Hurda Detayı',['Stok Kodu','Ay','Fiş Grubu','Hata Kodu','Miktar','Kaynak','Orijinal Hata','Mod Ataması','Kaynak Miktarı','Kaynak Birimi'])
+        for i,r in enumerate(rows,1):detail.write_row(i,0,[r['code'],MONTHS[r['month']-1],r['voucher'],error_value(r['error']),r['pivot_qty'],r['source'],str(r['original_error'] or ''),'Evet' if r['assigned'] else 'Hayır',r['qty'],r['unit']])
+        detail.write(0,11,f"Pivot miktar birimi: {group['pivot_unit']}")
+        pivot=sheet('Hata Kodu Pivot',[f"Toplam Hurda ({group['pivot_unit']})"]);pivot_index=len(book.worksheets())
         pivot.write_row(1,0,['Stok Kodu']+[error_value(e) for e in group['pivot_codes']]+['TOPLAM'],head)
         for i,r in enumerate(group['pivot'],2):pivot.write_row(i,0,[r['code']]+[r['errors'].get(e,0) for e in group['pivot_codes']]+[r['total']])
         if group['pivot']:

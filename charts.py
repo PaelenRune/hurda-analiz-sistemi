@@ -16,10 +16,10 @@ def figure(result,group,kind):
     period=f"{result['year']} · {', '.join(result['vouchers'])}"
     if kind=='ppm':
         rr=[r for r in group['monthly'] if r['ppm'] is not None]
-        ax.plot([r['label'] for r in rr],[r['ppm'] for r in rr],color=color,marker='o',linewidth=2.3,label='Gerçekleşen PPM')
+        ax.plot([r['label'] for r in group['monthly']],[r['ppm'] if r['ppm'] is not None else float('nan') for r in group['monthly']],color=color,marker='o',linewidth=2.3,label='Gerçekleşen PPM')
         if group['target'] is not None:ax.axhline(group['target'],color='#d68a29',linestyle='--',label=f"Hedef: {group['target']:g}")
         ax.set_ylabel('PPM');ax.legend(loc='upper left') if rr else None
-        if not rr:ax.text(.5,.5,DATA_LABELS.get(group.get('data_status'),'Analize uygun veri yok'),ha='center',transform=ax.transAxes)
+        if not rr:ax.text(.5,.5,'PPM hesaplanamaz: tüketim sıfır.' if group['stocks'] and not group['consumption'] else DATA_LABELS.get(group.get('data_status'),'Analize uygun veri yok'),ha='center',transform=ax.transAxes)
         title=f"{group['name']} — aylık PPM"
     else:
         rows=group['pareto'];x=list(range(len(rows)))

@@ -147,28 +147,31 @@ def upload(role):
     if suffix not in ('.xls','.xlsx'):raise InputError('XLS veya XLSX dosyası yükleyin.')
     parsed=parse_file(file.stream,role,filename='input'+suffix)
     parsed['filename']=Path(file.filename.replace('\\','/')).name
-    with LOCK:s=state();s['inputs'][role]=parsed;s['result']=None
+    with LOCK:s=state();s['inputs'][role]=parsed;s['result']=None;s['revision']=s.get('revision',0)+1
     periods=sorted({(r['year'],r['month']) for r in parsed['records'] if r.get('year') and r.get('month')})
     return jsonify(filename=parsed['filename'],count=len(parsed['records']),warnings=parsed['warnings'],hint=parsed['hint'],periods=periods)
 
 @app.delete('/api/upload/<role>')
 def remove(role):
-    with LOCK:s=state();s['inputs'].pop(role,None);s['result']=None
+    with LOCK:s=state();s['inputs'].pop(role,None);s['result']=None;s['revision']=s.get('revision',0)+1
     return jsonify(ok=True)
 
 @app.post('/api/analyze')
 def run():
     options=request.get_json() or {}
-    s=state();inputs=dict(s['inputs'])
+    with LOCK:
+        s=state();inputs=dict(s['inputs']);sid=session['id']
+        s['result']=None;s['revision']=s.get('revision',0)+1;revision=s['revision']
+    if not isinstance(options,dict):raise InputError('Analiz seçimleri geçersiz.')
     if not {'scrap','consumption','weights','costs'}<=inputs.keys():raise InputError('Hurdalar, Tüketim, Gramaj ve Maliyet dosyalarını yükleyin.')
     if not inputs.get('fragmented') and not options.get('no_fragment'):raise InputError('Parçalanmış hurda dosyasını yükleyin veya bu dönem için parçalanmış hurda olmadığını işaretleyin.')
-    with LOCK:s['result']=None
     try:result=analyze(inputs,options)
     except (KeyError,TypeError,ValueError) as exc:
         if isinstance(exc,InputError):raise
         raise InputError('Filtre seçimleri geçersiz: '+str(exc))
-    if not result['requires_confirmation']:
-        with LOCK:s['result']=result
+    with LOCK:
+        if STATE.get(sid) is not s or s['revision']!=revision:raise InputError('Girdiler veya analiz seçimi değişti; analizi yeniden başlatın.')
+        if not result['requires_confirmation']:s['result']=result
     return jsonify(result)
 
 def result():

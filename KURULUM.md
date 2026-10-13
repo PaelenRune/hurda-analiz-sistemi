@@ -20,6 +20,10 @@ Girdi dosyaları değiştirilmez. Yüklenen dosyalar diske yazılmadan RAM'den o
 - PPM yalnızca analize giren stokların tüketimiyle hesaplanır. Kablo kg/kg, diğerleri adet/adet. Çok aylı PPM, toplam hurda / toplam tüketim oranıdır.
 - Kaynakta dönem bulunmaması, seçilen kapsamda hurda kaydı olmaması ve tüm kayıtların eksik veri nedeniyle çıkarılması sıfır hurda olarak gösterilmez. Arayüz, grafikler ve web Excel çıktısındaki Dönem Kontrolü bu durumları ayrı belirtir; veri olmayan miktar/maliyet hücreleri boş bırakılır. Gerçek sıfır maliyet ve sıfır tüketim değerleri korunur.
 - Gramaj dosyasındaki MT→GR/KG ve AD→GR/KG çevrimleri desteklenir. Kablo grubunda farklı kaynak birimleri varsa ham miktarlar birbiriyle toplanmaz; Pareto ortak kg birimiyle gösterilir. Stok satırlarında kaynak birim korunur.
+- Kabloda metre dışı kaynak birimi varsa hata pivotu da Pareto gibi kg kullanır. Excel pivotunun kaynak miktarı kg'dır; ham miktar ve birim ayrıca detay sütunlarında korunur. Gramaj çelişkisi yalnız analize giren kablo stoklarında kontrol edilir.
+- Yıl ve ay kesirsiz tam sayı olmalıdır. Tekrarlanan ay/gramaj birimi sütunları ve kaynak Excel hata değerleri sessizce seçilmez veya boş sayılmaz; hata bildirilir.
+- Sıfır miktarlı geçmiş kayıtlar, pozitif hurdanın hata modu eşitliğini çözmekte kullanılmaz. PPM grafiği hesaplanamayan ayların boşluğunu korur; sıfır tüketimde PPM hesaplanamaz.
+- Analiz sürerken aynı oturumda dosya, analiz seçimi veya oturum değişirse önceki işlem sonucu yayınlanmaz. Başarısız yeni analizden sonra önceki sonuç dışa aktarılamaz.
 - Boş hata kodları her ay için kayıt sayısının moduyla doldurulur. Eşitlikte önceki beş takvim ayındaki, aynı seçili fiş/stok kapsamındaki aday kodların kayıt sayıları karşılaştırılır. Çözülemeyen eşitlik belirsiz kalır. Orijinal kod ve atama bilgisi detayda korunur.
 - Hedefler kullanıcı tarafından girilir. Örnek dosyalardaki hedefler veya geçmiş yıl sayıları güncel veriye otomatik taşınmaz.
 

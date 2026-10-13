@@ -15,6 +15,7 @@ ERRORS = dict(enumerate(['Terminal Çakım Hatası','IDC Çakım Hatası','Kablo
 
 class InputError(ValueError): pass
 class TableNotFound(InputError): pass
+EXCEL_ERRORS={'#NULL!','#DIV/0!','#VALUE!','#REF!','#NAME?','#NUM!','#N/A','#SPILL!','#CALC!'}
 
 def norm(value):
     value = str(value or '').replace('ı','i').replace('İ','I')
@@ -22,6 +23,7 @@ def norm(value):
 
 def code(value):
     if value is None: return ''
+    if isinstance(value,str) and value.strip().upper() in EXCEL_ERRORS:raise InputError('Excel hata değeri var: '+value+'. Kaynak hücreyi düzeltin.')
     if isinstance(value,(float,int)) and float(value).is_integer(): return str(int(value))
     return str(value).strip().upper()
 
@@ -34,6 +36,12 @@ def numeric(value, label='Değer'):
     except (ValueError,TypeError): raise InputError(f'{label}: sayısal olmayan değer ({value}).')
     if not math.isfinite(result): raise InputError(f'{label}: geçersiz sayı.')
     return result
+
+def integer(value,label,lower,upper):
+    if isinstance(value,bool):raise InputError(f'{label}: tam sayı seçin.')
+    n=numeric(value,label)
+    if n is None or n!=int(n) or not lower<=n<=upper:raise InputError(f'{label}: {lower}–{upper} arasında tam sayı seçin.')
+    return int(n)
 
 def parse_date(value):
     if isinstance(value,datetime): return value
@@ -63,7 +71,7 @@ def read_sheets(path, filename=None):
                 row=[]
                 for c in range(sheet.ncols):
                     cell=sheet.cell(r,c)
-                    if cell.ctype==xlrd.XL_CELL_ERROR: row.append(None)
+                    if cell.ctype==xlrd.XL_CELL_ERROR: row.append(xlrd.error_text_from_code.get(cell.value,'#VALUE!'))
                     elif cell.ctype==xlrd.XL_CELL_DATE: row.append(xlrd.xldate.xldate_as_datetime(cell.value,book.datemode))
                     else: row.append(cell.value if cell.value!='' else None)
                 rows.append(row)
@@ -90,7 +98,7 @@ def find_table(sheets, required, preferred=None):
             headers={norm(v):j for j,v in enumerate(row) if v is not None}
             if all(any(norm(alias) in headers for alias in alternatives) for alternatives in required):
                 repeated=Counter(norm(v) for v in row if v is not None)
-                important={'STOK KODU','HAM KODU','TARIH','YIL','AY','MIKTAR','TOPLAM MIKTAR','FIS NO','BIRIM','HATA KODU','EKALAN1','GRAMAJ','CEVRIM PAY-1'}
+                important={'STOK KODU','HAM KODU','TARIH','YIL','AY','MIKTAR','TOPLAM MIKTAR','FIS NO','BIRIM','HATA KODU','EKALAN1','GRAMAJ','CEVRIM PAY-1','OLCU BR-1','OLCU BR-2'}|{norm(m) for m in MONTHS}
                 duplicate=[k for k,n in repeated.items() if n>1 and (k in important or k.startswith('BIRIM MALZEME MALIYET'))]
                 if duplicate:raise InputError(f'{name}!{i+1}: aynı başlık birden fazla sütunda var: '+', '.join(duplicate))
                 return name, rows, i, headers
@@ -258,7 +266,7 @@ def merge_scrap(inputs,options,year,months,groups,vouchers):
     main=[dict(r) for r in inputs['scrap']['records']]
     fragment=inputs.get('fragmented')
     if not fragment:return main,[]
-    fy=int(options.get('fragment_year') or year);fm=int(options.get('fragment_month') or months[-1]);fv=options.get('fragment_voucher','Y')
+    fy=integer(options.get('fragment_year',year),'Parçalanmış yıl',2000,2100);fm=integer(options.get('fragment_month',months[-1]),'Parçalanmış ay',1,12);fv=options.get('fragment_voucher','Y')
     if not 2000<=fy<=2100 or not 1<=fm<=12 or fv not in ('Y','Ç','HRD'):raise InputError('Parçalanmış veri dönemi ve fiş grubu geçersiz.')
     extra=[]
     for original in fragment['records']:
@@ -304,21 +312,25 @@ def merge_scrap(inputs,options,year,months,groups,vouchers):
     return [r for r in main if key(r) not in controls]+extra,checks
 
 def analyze(inputs,options):
+    if not isinstance(options,dict):raise InputError('Analiz seçimleri bir nesne olarak gönderilmelidir.')
+    for field in ('no_fragment','skip_missing'):
+        if field in options and not isinstance(options[field],bool):raise InputError(f'{field}: evet/hayır seçimi geçersiz.')
     if options.get('no_fragment') is True:inputs={**inputs,'fragmented':None}
-    year=int(options['year']);months=sorted(set(int(m) for m in options['months']))
+    year=integer(options['year'],'Yıl',2000,2100);months=sorted(set(integer(m,'Ay',1,12) for m in options['months']))
     groups=list(dict.fromkeys(options['groups']));vouchers=list(dict.fromkeys(options['vouchers']))
     if not 2000<=year<=2100 or not months or any(m<1 or m>12 for m in months): raise InputError('Geçerli yıl ve ay seçin.')
     if not groups or not set(groups)<=set(GROUPS) or not vouchers or not set(vouchers)<={'Y','Ç','HRD'}: raise InputError('Fiş ve stok grubu seçin.')
     all_rows,reconciliation=merge_scrap(inputs,options,year,months,groups,vouchers)
     scoped=[r for r in all_rows if r['code'][:3] in groups and r['voucher'] in vouchers]
     current=[r for r in scoped if r['year']==year and r['month'] in months and r['qty']!=0]
+    active_keys={(r['code'],year,r['month']) for r in current}
     costs=defaultdict(list)
     for r in inputs['costs']['records']:costs[(r['code'],r['year'],r['month'])].append(r)
     rates={};conflicts=[]
     for key,rr in costs.items():
         latest=max(r['date'] for r in rr);same=[r for r in rr if r['date']==latest]
         choices={(r['tl'],r['eur']) for r in same}
-        if len(choices)>1 and key in {(r['code'],year,r['month']) for r in current}:
+        if len(choices)>1 and key in active_keys:
             conflicts.append({'code':key[0],'month':key[2],'date':latest})
         rates[key]=same[-1]
     if conflicts:raise InputError('Son tarihte farklı maliyetler var. Maliyet dosyasını düzeltin: '+', '.join(f"{r['code']} ({r['month']}. ay)" for r in conflicts))
@@ -326,7 +338,9 @@ def analyze(inputs,options):
     for r in inputs['consumption']['records']:
         key=(r['code'],r['year'],r['month']);consumption[key]+=r['qty'];cons_count[key]+=1
     weights={};weight_units={}
+    needed_weights={r['code'] for r in current if r['code'].startswith('202')}
     for r in inputs['weights']['records']:
+        if r['code'] not in needed_weights:continue
         if r['code'] in weights and weights[r['code']]!=r['grams']:raise InputError(f"{r['code']}: çelişen gramajlar var.")
         if r['code'] in weight_units and weight_units[r['code']]!=r.get('unit','MT'):raise InputError(f"{r['code']}: çelişen gramaj birimleri var.")
         weights[r['code']]=r['grams']
@@ -350,11 +364,12 @@ def analyze(inputs,options):
     if issues and not options.get('skip_missing'):
         return {'requires_confirmation':True,'issues':issues,'message':'Bu stokların verileri eksik. Bu stokları hurda, maliyet ve PPM hesabından çıkararak devam etmek istiyor musunuz?'}
     warnings=[w for inp in inputs.values() if inp for w in inp['warnings']]
-    if any(n>1 for key,n in cons_count.items() if key in {(r['code'],year,r['month']) for r in eligible}): warnings.append('Aynı stok/yıl için birden fazla tüketim satırı toplandı.')
+    eligible_keys={(r['code'],year,r['month']) for r in eligible}
+    if any(n>1 for key,n in cons_count.items() if key in eligible_keys): warnings.append('Aynı stok/yıl için birden fazla tüketim satırı toplandı.')
     processed=[];modes=[]
     for month in months:
         rows=[r for r in eligible if r['month']==month]
-        mode,note=resolve_mode(rows,scoped,year,month)
+        mode,note=resolve_mode(rows,[r for r in scoped if r['qty']>0],year,month)
         if rows:
             modes.append({'month':month,'mode':mode,'note':note,'assigned_count':sum(not r['error'] for r in rows)})
         for r in rows:
@@ -374,7 +389,9 @@ def analyze(inputs,options):
             rows=[r for r in processed if r['month']==month and r['code'].startswith(group)]
             quantities=defaultdict(float)
             for r in rows:
-                quantities[r['code']]+=r['qty'];pivot[r['code']][r['error']]+=r['qty'];pareto[r['error']]+=r['qty']*(weights[r['code']]/1000 if group=='202' and not cable_in_metres else 1)
+                quantities[r['code']]+=r['qty']
+                measured=r['qty']*(weights[r['code']]/1000 if group=='202' and not cable_in_metres else 1)
+                pivot[r['code']][r['error']]+=measured;pareto[r['error']]+=measured
             month_stocks=[]
             for stock,qty in sorted(quantities.items()):
                 key=(stock,year,month);rate=rates[key];grams=weights.get(stock) if group=='202' else None
@@ -396,4 +413,5 @@ def analyze(inputs,options):
         statuses={m['data_status'] for m in monthly}
         status=('partial' if statuses-{'ok','no_scope'} else 'ok') if stocks else 'all_excluded' if 'all_excluded' in statuses else 'no_scope' if statuses-{'no_source'} else 'no_source'
         results.append({'group':group,'name':GROUPS[group],'unit':'kg' if group=='202' else 'adet','qty_unit':('metre' if cable_in_metres else 'kaynak birimi') if group=='202' else 'adet','pareto_unit':('metre' if cable_in_metres else 'kg') if group=='202' else 'adet','stocks':list(stocks.values()),'monthly':monthly,'pivot_codes':error_codes,'pivot':[{'code':stock,'errors':dict(errors),'total':sum(errors.values())} for stock,errors in sorted(pivot.items())],'pareto':pareto_rows,'scrap':total_scrap,'consumption':total_consumption,'ppm':total_scrap/total_consumption*1e6 if total_consumption else None,'cost_tl':sum(i['cost_tl'] for i in monthly),'cost_eur':sum(i['cost_eur'] for i in monthly),'data_status':status,'target':numeric(options.get('targets',{}).get(group))})
-    return {'requires_confirmation':False,'year':year,'months':months,'vouchers':vouchers,'groups':results,'modes':modes,'issues':issues,'warnings':warnings,'coverage':coverage,'reconciliation':reconciliation,'excluded_rows':len(excluded),'detail':processed,'sources':{role:inp['filename'] for role,inp in inputs.items() if inp},'created':datetime.now().isoformat(timespec='seconds')}
+    for g in results:g['pivot_unit']=g['pareto_unit']
+    return {'requires_confirmation':False,'year':year,'months':months,'vouchers':vouchers,'groups':results,'modes':modes,'issues':issues,'warnings':warnings,'coverage':coverage,'reconciliation':reconciliation,'excluded_rows':len(excluded),'detail':processed,'sources':{role:inp['filename'] for role,inp in inputs.items() if inp},'created':datetime.now().isoformat(timespec='microseconds')}

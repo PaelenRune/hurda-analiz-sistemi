@@ -118,6 +118,7 @@ def analysis_book(excel,book,result,group):
         else:write(summary,i,1,[[m['label'],None,None,None,group['target'],None,None]])
     last=3+len(group['monthly']);total=last+2
     write(summary,total,1,[['DÖNEM TOPLAMI',f'=SUM(B4:B{last})',f'=SUM(C4:C{last})',f'=IF(B{total}>0,C{total}/B{total}*1000000,"")',group['target'],f'=SUM(F4:F{last})',f'=SUM(G4:G{last})']])
+    if not group['stocks']:write(summary,total,1,[['DÖNEM TOPLAMI',None,None,None,group['target'],None,None]])
     number_format(excel,summary.Range(f'B4:G{total}'),'#,##0.00');summary.Columns('A:G').ColumnWidth=24
     summary.Range('A3:G3').Font.Bold=True
     summary.Cells(total+2,1).Value='PPM: analize dahil stokların tüketimi. Eksik verili stoklar hariç.'
@@ -143,8 +144,9 @@ def analysis_book(excel,book,result,group):
 def add_details(book,result,group):
     details=book.Worksheets.Add(After=book.Worksheets(book.Worksheets.Count));details.Name='Hurda Detayı'
     rows=[r for r in result['detail'] if r['code'].startswith(group['group'])]
-    matrix=[['Ay','Fiş Grubu','Stok Kodu','Hata Kodu','Miktar','Kaynak','Orijinal Hata Kodu','Mod Ataması']]
-    matrix += [[r['month'],r['voucher'],r['code'],int(r['error']) if str(r['error']).isdigit() else literal(r['error']),r['qty'],'Parçalanmış' if r['source']=='fragmented' else 'Ana Hurda',literal(r['original_error']), 'Evet' if r['assigned'] else 'Hayır'] for r in rows]
+    factors={s['code']:s['grams']/1000 if group['group']=='202' and group['pareto_unit']=='kg' else 1 for s in group['stocks']}
+    matrix=[['Ay','Fiş Grubu','Stok Kodu','Hata Kodu','Miktar','Kaynak','Orijinal Hata Kodu','Mod Ataması','Kaynak Miktarı','Kaynak Birimi']]
+    matrix += [[r['month'],r['voucher'],r['code'],int(r['error']) if str(r['error']).isdigit() else literal(r['error']),r['qty']*factors[r['code']],'Parçalanmış' if r['source']=='fragmented' else 'Ana Hurda',literal(r['original_error']), 'Evet' if r['assigned'] else 'Hayır',r['qty'],r['unit']] for r in rows]
     write(details,1,1,matrix);details.Columns('A:H').AutoFit()
     pivot_sheet=book.Worksheets.Add(After=book.Worksheets(book.Worksheets.Count));pivot_sheet.Name='Hata Kodu Pivot'
     if rows:
@@ -155,7 +157,7 @@ def add_details(book,result,group):
         pivot.PivotFields('Ay').Orientation=3
         pivot.PivotFields('Fiş Grubu').Orientation=3
         pivot.AddDataField(pivot.PivotFields('Miktar'),'Toplam Hurda',-4157)
-        if group.get('qty_unit')=='kaynak birimi':pivot.ColumnGrand=False
+        pivot_sheet.Cells(1,1).Value=f"Miktar birimi: {group['pivot_unit']}"
         pivot.PivotFields('Hata Kodu').AutoSort(1,'Hata Kodu')
         pivot_sheet.Columns.AutoFit()
     else:pivot_sheet.Cells(1,1).Value='Analize uygun hurda kaydı yok.'

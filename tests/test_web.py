@@ -116,10 +116,12 @@ def test_web_wrong_password_rate_limit(monkeypatch):
     LOGIN_ATTEMPTS.clear()
 
 @pytest.mark.skipif(sys.platform!='win32' or not importlib.util.find_spec('win32com'),reason='Native Excel validation requires Windows')
-def test_web_pivot_refreshes_in_microsoft_excel(tmp_path):
+@pytest.mark.parametrize('mixed',[False,True])
+def test_web_pivot_refreshes_in_microsoft_excel(tmp_path,mixed):
     import subprocess
     from test_analysis import row
-    f=fixture()
+    from test_deep_review import mixed_fixture
+    f=mixed_fixture() if mixed else fixture()
     f['scrap']['records'].extend([row(qty=7,error='2'),row(qty=3,error='10'),row(qty=4,error='Belirsiz')])
     r=analyze(f,opts())
     with zipfile.ZipFile(io.BytesIO(export_zip(r))) as z:
@@ -136,9 +138,11 @@ try:
     try:
         pivot=book.Worksheets('Hata Kodu Pivot').PivotTables(1)
         assert pivot.RefreshTable()
-        assert pivot.GetPivotData('Toplam Hurda').Value==39
-        assert pivot.GetPivotData('Toplam Hurda','Hata Kodu',2).Value==7
-        assert pivot.GetPivotData('Toplam Hurda','Hata Kodu',10).Value==3
+        from math import isclose
+        mixed=sys.argv[2]=='True'
+        assert isclose(pivot.GetPivotData('Toplam Hurda').Value,.176 if mixed else 39)
+        assert isclose(pivot.GetPivotData('Toplam Hurda','Hata Kodu',2).Value,.028 if mixed else 7)
+        assert isclose(pivot.GetPivotData('Toplam Hurda','Hata Kodu',10).Value,.012 if mixed else 3)
         assert book.Worksheets('Hata Kodu Pivot').Cells(2,2).Value==2
         assert book.Worksheets('Hata Kodu Pivot').Cells(2,3).Value==10
         assert book.Worksheets('GRAFİK VERİSİ').ChartObjects().Count==1
@@ -148,5 +152,5 @@ finally:excel.Quit()
 del book,excel
 gc.collect()
 """
-    checked=subprocess.run([sys.executable,'-c',code,str(path)],capture_output=True,text=True,timeout=60)
+    checked=subprocess.run([sys.executable,'-c',code,str(path),str(mixed)],capture_output=True,text=True,timeout=60)
     assert checked.returncode==0,checked.stdout+checked.stderr
