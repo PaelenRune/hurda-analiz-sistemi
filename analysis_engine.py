@@ -13,6 +13,7 @@ GROUPS = {'202':'Kablo', '204':'Terminal', '206':'IDC'}
 ERRORS = dict(enumerate(['Terminal Çakım Hatası','IDC Çakım Hatası','Kablo Boyu Hatalı','Taşıma Kaynaklı','Insertion Hatası','Potalama Kaynaklı','Tedarikçi Kaynaklı','Makara Sonu Firesi','Kablo Uç Açımı Hatalı','Yanlış Malzeme Kullanımı','Bıçak İzi','Ayar Firesi','İşçilik Firesi','Sipariş Fazlası Olarak Gelen Kablolar','Revizyon','Ezik / Kırık / Deformeli','Proje Kaynaklı','Operatör Hatası','Yanlış Onay','Elektriksel Test','Kilo Hatası','IDC Kesme Hurdası','Makina Kabul','Enjeksiyon','Fire','Diğer'],1))
 
 class InputError(ValueError): pass
+class TableNotFound(InputError): pass
 
 def norm(value):
     value = str(value or '').replace('ı','i').replace('İ','I')
@@ -87,8 +88,21 @@ def find_table(sheets, required, preferred=None):
         for i,row in enumerate(rows[:25]):
             headers={norm(v):j for j,v in enumerate(row) if v is not None}
             if all(any(norm(alias) in headers for alias in alternatives) for alternatives in required):
+                repeated=Counter(norm(v) for v in row if v is not None)
+                important={'STOK KODU','HAM KODU','TARIH','YIL','AY','MIKTAR','TOPLAM MIKTAR','FIS NO','BIRIM','HATA KODU','EKALAN1','GRAMAJ','CEVRIM PAY-1'}
+                duplicate=[k for k,n in repeated.items() if n>1 and (k in important or k.startswith('BIRIM MALZEME MALIYET'))]
+                if duplicate:raise InputError(f'{name}!{i+1}: aynı başlık birden fazla sütunda var: '+', '.join(duplicate))
                 return name, rows, i, headers
-    raise InputError('Beklenen sütunlar bulunamadı: '+', '.join(a[0] for a in required))
+    raise TableNotFound('Beklenen sütunlar bulunamadı: '+', '.join(a[0] for a in required))
+
+def find_unique_table(sheets,required):
+    tables=[]
+    for name,rows in sheets.items():
+        try:tables.append(find_table({name:rows},required))
+        except TableNotFound:pass
+    if not tables:raise TableNotFound('Beklenen sütunlar bulunamadı: '+', '.join(a[0] for a in required))
+    if len(tables)>1:raise InputError('Birden fazla kaynak tablosu bulundu: '+', '.join(t[0] for t in tables)+'. Kaynak hareketlerini tek tabloda birleştirin.')
+    return tables[0]
 
 def get(row,headers,*aliases):
     for alias in aliases:
@@ -98,25 +112,86 @@ def get(row,headers,*aliases):
 
 def period_hint(sheets):
     text=' '.join(str(v) for rows in sheets.values() for row in rows[:3] for v in row if v is not None)
-    year=re.search(r'(?:YIL|Yıl|Yil)\s*[:=]?\s*(20\d\d)',text,re.I)
-    month=re.search(r'AY\s*[:=]?\s*(\d{1,2})(?!\d)',norm(text))
-    return (int(year.group(1)) if year else None, int(month.group(1)) if month else None)
+    years={int(v) for v in re.findall(r'(?:YIL|Yıl|Yil)\s*[:=]?\s*(20\d\d)',text,re.I)}
+    months={int(v) for v in re.findall(r'\bAY\s*[:=]?\s*(\d{1,2})(?!\d)',norm(text))}
+    if len(years)>1 or len(months)>1:raise InputError('Dosya başlıklarında birden fazla yıl/ay var; dönemler ayrı ve açık şekilde verilmelidir.')
+    if any(not 1<=m<=12 for m in months):raise InputError('Dosya başlığındaki ay geçersiz.')
+    return (next(iter(years),None),next(iter(months),None))
+
+def record_period(row,h,hint,label):
+    raw=get(row,h,'Tarih');dt=parse_date(raw)
+    if raw not in (None,'') and not dt:raise InputError(f'{label}: tarih okunamadı; satır başka bir aya atanamaz.')
+    if dt:return dt.year,dt.month,dt
+    values=[]
+    for name,fallback,lower,upper in [('Yıl',hint[0],2000,2100),('Ay',hint[1],1,12)]:
+        v=numeric(get(row,h,name),f'{label} {name}')
+        if v is None:v=fallback
+        if v is not None and (v!=int(v) or not lower<=v<=upper):raise InputError(f'{label}: {name} geçersiz.')
+        values.append(int(v) if v is not None else 0)
+    return *values,None
+
+def scrap_records(name,rows,start,h,hint,role):
+    records=[]
+    for n,row in enumerate(rows[start+1:],start+2):
+        stock=code(get(row,h,'Stok Kodu'))
+        if len(stock)<6:continue
+        year,month,dt=record_period(row,h,hint,f'{name}!{n}')
+        q=numeric(get(row,h,'Miktar','Toplam Miktar'),f'{name}!{n} miktar')
+        if q is None:raise InputError(f'{name}!{n}: hurda miktarı boş.')
+        if q<0:raise InputError(f'{name}!{n}: negatif hurda miktarı var; iade/düzeltme kaydı önce ayrılmalı.')
+        if role=='scrap' and (not year or not month):raise InputError(f'{name}!{n}: hurda tarihi eksik/geçersiz.')
+        records.append(dict(code=stock,name=str(get(row,h,'Stok Adı','Stok İsmi') or ''),year=year,month=month,
+            date=dt.isoformat() if dt else None,source_row=n,sheet=name,qty=q,
+            error=code(get(row,h,'Hata Kodu','EKALAN1')) or None,
+            voucher=voucher(get(row,h,'Fiş No')),voucher_no=code(get(row,h,'Fiş No')) or None,
+            unit=norm(get(row,h,'Birim')) or None,source=role))
+    return records
+
+def combined_baseline(sheets,summary_name,summary,hint):
+    """An embedded transaction table supplies the controls for a combined HURDA table."""
+    if norm(summary_name)!='HURDA':return None
+    other={name:rows for name,rows in sheets.items() if name!=summary_name}
+    if not other:return None
+    try:table=find_unique_table(other,[['Stok Kodu'],['Miktar','Toplam Miktar'],['Fiş No']])
+    except TableNotFound:return None
+    raw=scrap_records(*table,hint,'scrap')
+    # Every original stock/period/fiş must remain represented in the combined table.
+    totals=defaultdict(float)
+    for r in summary:
+        if r['code'][:3] in GROUPS:totals[(r['code'],r['year'],r['month'])]+=r['qty']
+    candidates={}
+    explicit_vouchers={r['voucher'] for r in summary if r['voucher']}
+    for v in ('Y','Ç','HRD'):
+        if explicit_vouchers and v not in explicit_vouchers:continue
+        baseline=[r for r in raw if r['code'][:3] in GROUPS and r['voucher']==v and r['qty']>0]
+        controls=defaultdict(float)
+        for r in baseline:controls[(r['code'],r['year'],r['month'])]+=r['qty']
+        if controls and all(k in totals and totals[k]+1e-7>=q for k,q in controls.items()):candidates[v]=baseline
+    if len(candidates)>1:raise InputError('HURDA birleşik tablosunun fiş grubu belirsiz; dosyada birleşik sonucun fiş grubunu belirtin.')
+    if not candidates:
+        if any(r['code'][:3] in GROUPS and r['qty']>0 for r in raw):
+            raise InputError('HURDA tablosu dosyanın kaynak hareketleriyle uyuşmuyor; birleşik sonuç veya yalnız ek miktar içeren ayrı bir dosya yükleyin.')
+        return None
+    v,baseline=next(iter(candidates.items()))
+    if any(r['voucher'] and r['voucher']!=v for r in summary):raise InputError('Birleşik HURDA tablosunun fiş grubu kaynak hareketleriyle uyuşmuyor.')
+    for r in summary:r['voucher']=v
+    return baseline
 
 def parse_file(path,role,filename=None):
     sheets=read_sheets(path,filename)
-    warnings=[]; records=[]; hint=period_hint(sheets)
+    warnings=[]; records=[]; hint=period_hint(sheets);baseline=None
     if role=='consumption':
-        name,rows,start,h=find_table(sheets,[['Ham Kodu','Stok Kodu'],['Yıl']])
+        name,rows,start,h=find_unique_table(sheets,[['Ham Kodu','Stok Kodu'],['Yıl']])
         for n,row in enumerate(rows[start+1:],start+2):
             stock=code(get(row,h,'Ham Kodu','Stok Kodu'))
             if len(stock)<6: continue
             year=numeric(get(row,h,'Yıl'),f'{name}!{n} yıl')
-            if not year: raise InputError(f'{name}!{n}: yıl eksik.')
+            if not year or year!=int(year) or not 2000<=year<=2100: raise InputError(f'{name}!{n}: yıl eksik/geçersiz.')
             for month,label in enumerate(MONTHS,1):
                 v=numeric(get(row,h,label),f'{stock} {label} tüketim')
                 if v is not None: records.append({'code':stock,'year':int(year),'month':month,'qty':v})
     elif role=='weights':
-        name,rows,start,h=find_table(sheets,[['Stok Kodu'],['Çevrim Pay-1','Gramaj']])
+        name,rows,start,h=find_unique_table(sheets,[['Stok Kodu'],['Çevrim Pay-1','Gramaj']])
         for n,row in enumerate(rows[start+1:],start+2):
             stock=code(get(row,h,'Stok Kodu'))
             if len(stock)<6: continue
@@ -127,30 +202,36 @@ def parse_file(path,role,filename=None):
             if factor is not None: records.append({'code':stock,'grams':factor*(1000 if target=='KG' else 1),'unit':origin})
     else:
         required=[['Stok Kodu'],['Birim Malzeme Maliyet (TL)','Birim Malzeme Maliyeti (TL)']] if role=='costs' else [['Stok Kodu'],['Miktar','Toplam Miktar']]
-        name,rows,start,h=find_table(sheets,required, 'HURDA' if role=='fragmented' else None)
-        for n,row in enumerate(rows[start+1:],start+2):
-            stock=code(get(row,h,'Stok Kodu'))
-            if len(stock)<6:continue
-            dt=parse_date(get(row,h,'Tarih'))
-            y=get(row,h,'Yıl'); m=get(row,h,'Ay')
-            year=dt.year if dt else int(numeric(y) or hint[0] or 0)
-            month=dt.month if dt else int(numeric(m) or hint[1] or 0)
-            common={'code':stock,'name':str(get(row,h,'Stok Adı','Stok İsmi') or ''),'year':year,'month':month,'date':dt.isoformat() if dt else None,'source_row':n,'sheet':name}
-            if role=='costs':
-                if not dt: raise InputError(f'{name}!{n}: maliyet tarihi eksik/geçersiz; son tarihli değer seçilemiyor.')
-                common.update(tl=numeric(get(row,h,'Birim Malzeme Maliyet (TL)','Birim Malzeme Maliyeti (TL)'),f'{stock} TL maliyet'),eur=numeric(get(row,h,'Birim Malzeme Maliyet (EUR)','Birim Malzeme Maliyeti (EUR)'),f'{stock} EUR maliyet'))
-            else:
-                q=numeric(get(row,h,'Miktar','Toplam Miktar'),f'{name}!{n} miktar')
-                if q is None:raise InputError(f'{name}!{n}: hurda miktarı boş.')
-                if q<0:raise InputError(f'{name}!{n}: negatif hurda miktarı var; iade/düzeltme kaydı önce ayrılmalı.')
-                err=code(get(row,h,'Hata Kodu','EKALAN1')) or None
-                common.update(qty=q,error=err,voucher=voucher(get(row,h,'Fiş No')),unit=norm(get(row,h,'Birim')) or None,source=role)
-                if role=='scrap' and (not year or not month): raise InputError(f'{name}!{n}: hurda tarihi eksik/geçersiz.')
-            records.append(common)
+        name,rows,start,h=find_table(sheets,required,'HURDA') if role=='fragmented' else find_unique_table(sheets,required)
+        if role=='fragmented' and norm(name)!='HURDA':name,rows,start,h=find_unique_table(sheets,required)
+        if role in ('scrap','fragmented'):
+            records=scrap_records(name,rows,start,h,hint,role)
+            if role=='fragmented':
+                baseline=combined_baseline(sheets,name,records,hint)
+                if baseline:warnings.append('Birleşik HURDA tablosu tespit edildi. Ana dosyayla kaynak miktarları doğrulanarak çift sayım önlenecek.')
+        else:
+            records=parse_cost_records(name,rows,start,h,hint)
     if not records: raise InputError('Dosyada kullanılabilir veri satırı bulunamadı.')
     if role=='fragmented' and any(not r['voucher'] for r in records):
         warnings.append('Parçalanmış tabloda fiş grubu bulunmuyor. Aşağıdaki Parçalanmış fiş grubu seçimi kullanılacak.')
-    return {'role':role,'filename':Path(filename or ('input.xlsx' if hasattr(path,'read') else path)).name,'records':records,'warnings':warnings,'hint':list(hint)}
+    if role=='fragmented' and any(not r['year'] or not r['month'] for r in records):
+        warnings.append('Parçalanmış tabloda bazı satırların yıl/ayı yok; arayüzdeki parçalanmış veri dönemi kullanılacak.')
+    result={'role':role,'filename':Path(filename or ('input.xlsx' if hasattr(path,'read') else path)).name,'records':records,'warnings':warnings,'hint':list(hint)}
+    if baseline:result['combined_baseline']=baseline
+    return result
+
+def parse_cost_records(name,rows,start,h,hint):
+    records=[]
+    for n,row in enumerate(rows[start+1:],start+2):
+        stock=code(get(row,h,'Stok Kodu'))
+        if len(stock)<6:continue
+        year,month,dt=record_period(row,h,hint,f'{name}!{n}')
+        if not dt:raise InputError(f'{name}!{n}: maliyet tarihi eksik/geçersiz; son tarihli değer seçilemiyor.')
+        records.append(dict(code=stock,name=str(get(row,h,'Stok Adı','Stok İsmi') or ''),year=year,month=month,
+            date=dt.isoformat(),source_row=n,sheet=name,
+            tl=numeric(get(row,h,'Birim Malzeme Maliyet (TL)','Birim Malzeme Maliyeti (TL)'),f'{stock} TL maliyet'),
+            eur=numeric(get(row,h,'Birim Malzeme Maliyet (EUR)','Birim Malzeme Maliyeti (EUR)'),f'{stock} EUR maliyet')))
+    return records
 
 def sort_error(value):
     s=str(value or '')
@@ -172,17 +253,61 @@ def resolve_mode(rows,history,year,month):
         if len(winners)==1:return winners[0],'Eşitlik, önceki 5 ayın kayıt sayısıyla çözüldü.'
     return None,'Mod eşitliği önceki 5 ayda da çözülemedi; boş kodlar belirsiz bırakıldı.'
 
+def merge_scrap(inputs,options,year,months,groups,vouchers):
+    main=[dict(r) for r in inputs['scrap']['records']]
+    fragment=inputs.get('fragmented')
+    if not fragment:return main,[]
+    fy=int(options.get('fragment_year') or year);fm=int(options.get('fragment_month') or months[-1]);fv=options.get('fragment_voucher','Y')
+    if not 2000<=fy<=2100 or not 1<=fm<=12 or fv not in ('Y','Ç','HRD'):raise InputError('Parçalanmış veri dönemi ve fiş grubu geçersiz.')
+    extra=[]
+    for original in fragment['records']:
+        r=dict(original);r['year']=r['year'] or fy;r['month']=r['month'] or fm;r['voucher']=r['voucher'] or fv
+        extra.append(r)
+    baseline=fragment.get('combined_baseline')
+    if not baseline:return main+extra,[]
+    def key(r):return r['code'],r['year'],r['month'],r['voucher']
+    controls=defaultdict(float);actual=defaultdict(float);control_docs=defaultdict(float);actual_docs=defaultdict(float)
+    for r in baseline:controls[key(r)]+=r['qty']
+    for r in main:actual[key(r)]+=r['qty']
+    for r in baseline:
+        if r.get('voucher_no'):control_docs[(key(r),r['voucher_no'])]+=r['qty']
+    for r in main:
+        if key(r) in controls:actual_docs[(key(r),r.get('voucher_no'))]+=r['qty']
+    relevant={(year,m) for m in months}
+    relevant.update(shifted(year,m,-i) for m in months for i in range(1,6))
+    for k,expected in controls.items():
+        if k[0][:3] in groups and k[3] in vouchers and (k[1],k[2]) in relevant:
+            if k not in actual or not math.isclose(actual[k],expected,rel_tol=1e-9,abs_tol=1e-7):
+                raise InputError(f'{k[0]} ({k[1]} / {k[2]}, {k[3]}): birleşik dosyanın ana hurda miktarı {expected:g}; ana dosyada {actual.get(k,0):g}. Kaynaklar eşleşmediği için çift sayım kontrolü tamamlanamadı.')
+            docs={d:q for (kk,d),q in control_docs.items() if kk==k}
+            if docs:
+                found={d:q for (kk,d),q in actual_docs.items() if kk==k and q!=0}
+                if set(found)!=set(docs) or any(not math.isclose(found[d],q,rel_tol=1e-9,abs_tol=1e-7) for d,q in docs.items()):
+                    raise InputError(f'{k[0]}: birleşik dosyanın fiş numaraları ve miktarları ana dosyayla eşleşmiyor.')
+            units={r['unit'] for r in main if key(r)==k and r['unit']}
+            expected_unit=next((r.get('unit','MT') for r in inputs['weights']['records'] if r['code']==k[0]),'MT') if k[0].startswith('202') else 'AD'
+            baseline_units={r['unit'] for r in baseline if key(r)==k and r['unit']}
+            if any(u!=expected_unit for u in units|baseline_units):raise InputError(f'{k[0]}: birleşik dosyanın kaynak hareketlerinde birimler uyuşmuyor.')
+    # Replace verified originals with their combined result. Never subtract one
+    # error-code bucket from a different bucket, or deduplicate legitimate extra rows.
+    removed=defaultdict(float);replacement=defaultdict(float)
+    for k,q in controls.items():removed[(k[0][:3],k[1],k[2],k[3])]+=q
+    for r in extra:replacement[(r['code'][:3],r['year'],r['month'],r['voucher'])]+=r['qty']
+    checks=[]
+    for k,q in sorted(replacement.items()):
+        group,y,m,v=k
+        if group in groups and y==year and m in months and v in vouchers:
+            before=removed.get(k,0)
+            checks.append(dict(group=group,year=y,month=m,voucher=v,original_qty=before,
+                combined_qty=q,net_added_qty=q-before,source=fragment['filename']))
+    return [r for r in main if key(r) not in controls]+extra,checks
+
 def analyze(inputs,options):
     year=int(options['year']);months=sorted(set(int(m) for m in options['months']))
     groups=list(dict.fromkeys(options['groups']));vouchers=list(dict.fromkeys(options['vouchers']))
     if not 2000<=year<=2100 or not months or any(m<1 or m>12 for m in months): raise InputError('Geçerli yıl ve ay seçin.')
     if not groups or not set(groups)<=set(GROUPS) or not vouchers or not set(vouchers)<={'Y','Ç','HRD'}: raise InputError('Fiş ve stok grubu seçin.')
-    all_rows=[dict(r) for r in inputs['scrap']['records']]
-    if inputs.get('fragmented'):
-        fy=int(options.get('fragment_year') or year);fm=int(options.get('fragment_month') or months[-1]);fv=options.get('fragment_voucher','Y')
-        for original in inputs['fragmented']['records']:
-            r=dict(original);r['year']=r['year'] or fy;r['month']=r['month'] or fm;r['voucher']=r['voucher'] or fv
-            all_rows.append(r)
+    all_rows,reconciliation=merge_scrap(inputs,options,year,months,groups,vouchers)
     scoped=[r for r in all_rows if r['code'][:3] in groups and r['voucher'] in vouchers]
     current=[r for r in scoped if r['year']==year and r['month'] in months and r['qty']!=0]
     costs=defaultdict(list)
@@ -201,6 +326,7 @@ def analyze(inputs,options):
     weights={};weight_units={}
     for r in inputs['weights']['records']:
         if r['code'] in weights and weights[r['code']]!=r['grams']:raise InputError(f"{r['code']}: çelişen gramajlar var.")
+        if r['code'] in weight_units and weight_units[r['code']]!=r.get('unit','MT'):raise InputError(f"{r['code']}: çelişen gramaj birimleri var.")
         weights[r['code']]=r['grams']
         weight_units[r['code']]=r.get('unit','MT')
     excluded=[];eligible=[];missing={}
@@ -256,4 +382,4 @@ def analyze(inputs,options):
             share=qty/pq if pq else 0;cum+=share
             pareto_rows.append({'error':error,'description':ERRORS.get(int(error),'Tanımsız hata kodu') if str(error).isdigit() else error,'qty':qty,'share':share,'cumulative':cum})
         results.append({'group':group,'name':GROUPS[group],'unit':'kg' if group=='202' else 'adet','qty_unit':('metre' if cable_in_metres else 'kaynak birimi') if group=='202' else 'adet','pareto_unit':('metre' if cable_in_metres else 'kg') if group=='202' else 'adet','stocks':list(stocks.values()),'monthly':monthly,'pivot_codes':error_codes,'pivot':[{'code':stock,'errors':dict(errors),'total':sum(errors.values())} for stock,errors in sorted(pivot.items())],'pareto':pareto_rows,'scrap':total_scrap,'consumption':total_consumption,'ppm':total_scrap/total_consumption*1e6 if total_consumption else None,'cost_tl':sum(i['cost_tl'] for i in monthly),'cost_eur':sum(i['cost_eur'] for i in monthly),'target':numeric(options.get('targets',{}).get(group))})
-    return {'requires_confirmation':False,'year':year,'months':months,'vouchers':vouchers,'groups':results,'modes':modes,'issues':issues,'warnings':warnings,'excluded_rows':len(excluded),'detail':processed,'sources':{role:inp['filename'] for role,inp in inputs.items() if inp},'created':datetime.now().isoformat(timespec='seconds')}
+    return {'requires_confirmation':False,'year':year,'months':months,'vouchers':vouchers,'groups':results,'modes':modes,'issues':issues,'warnings':warnings,'reconciliation':reconciliation,'excluded_rows':len(excluded),'detail':processed,'sources':{role:inp['filename'] for role,inp in inputs.items() if inp},'created':datetime.now().isoformat(timespec='seconds')}

@@ -4,14 +4,17 @@
 
 Beş dosyayı kendi alanlarına yükleyin: Hurdalar, Tüketim, Gramaj, Maliyet, Parçalanmış Hurda. Parçalanmış hurda bulunmayan dönemlerde ilgili kutuyu işaretleyin. Son girdi yüklenince mevcut filtrelerle analiz başlar. Filtreleri değiştirince **Analizi başlat** düğmesini kullanın.
 
+Dosya yüklemek seçtiğiniz analiz yılını ve aylarını değiştirmez. Toplu kaynakta daha yeni bir ay bulunsa bile seçtiğiniz dönem korunur. Parçalanmış dosyanın kendi dönem bilgisi yalnızca parçalanmış veri dönemi alanlarına alınır.
+
 Girdi dosyaları değiştirilmez. Yüklenen dosyalar diske yazılmadan RAM'den okunur; ayrıştırılan veriler yalnızca çalışan oturumun belleğinde tutulur. Yerel oturum iki saat, web oturumu 30 dakika kullanılmazsa en geç sonraki 30 saniyelik temizlikte temizlenir. Oturumu temizle düğmesi de verileri temizler. Uygulama yeniden başlatıldığında geçmiş analizler yüklenmez. Web yayını ve şifre ayarları README.md içindedir.
 
 ## Kurallar
 
 - Fiş grupları tam önek ile Y, Ç, HRD olarak ayrılır. HRD, H kayıtlarını kapsamaz.
 - Stok grupları 202 kablo, 204 terminal, 206 IDC. Kod uzantıları korunur.
-- Parçalanmış dosyada hazır bileşenler ana miktarlara eklenir. 500'lü ürünler hesaplanmaz. Dosyada `HURDA` sayfası varsa bileşenler oradan okunur; diğer pivot sayfaları yeniden eklenmez. Bu girdinin yalnızca ek bileşenleri içermesi gerekir.
+- Yalnız ek bileşen içeren parçalanmış dosya ana miktarlara eklenir. `HURDA` sonuç tablosunun yanında orijinal hareketler de varsa, ana miktarı içeren birleşik tablo kaynak stok/yıl/ay/fiş miktarlarıyla doğrulanır. Eşleşen ana kayıtların yerine birleşik sonuç kullanılır; aynı miktar tekrar eklenmez. Kaynaklar eşleşmezse analiz durur. Arayüz ve web Excel çıktısındaki Kaynak Kontrolü, ana/birleşik/net ek miktarları gösterir. 500'lü ürünler ve dosyanın diğer pivot sayfaları yeniden hesaplanmaz.
 - Parçalanmış tabloda tarih veya fiş grubu bulunmuyorsa gelişmiş filtrelerdeki açık seçimler kullanılır. Dosyada dönem/fiş bilgisi varsa bu bilgi önceliklidir.
+- Dolu ancak okunamayan tarihler başka aya atanmaz. Çelişen dönem başlıkları, tekrarlanan temel sütun adları, birden fazla ana kaynak tablosu veya çelişen gramaj birimleri analiz başlamadan bildirilir.
 - Birim maliyet Maliyet girdisinden, stok/yıl/ay içindeki son tarihten alınır. TL/EUR malzeme maliyetleri kullanılır; işçilik dahil edilmez. Aynı son tarihte çelişen değerler varsa analiz durur; dosya düzeltilmelidir.
 - Eksik maliyet kullanıcıya sorulur. Evet seçilirse ilgili stok/ay bütün hesaplardan çıkarılır. Eksik tüketim veya gramaj için de aynı kontrol uygulanır. Sıfır maliyet geçerli bir değerdir; boş maliyet değildir.
 - PPM yalnızca analize giren stokların tüketimiyle hesaplanır. Kablo kg/kg, diğerleri adet/adet. Çok aylı PPM, toplam hurda / toplam tüketim oranıdır.

@@ -186,6 +186,13 @@ def workbook(result,group,pareto=False):
             pivot.write_row(len(group['pivot'])+2,0,['TOPLAM']+[sum(r['errors'].get(e,0) for r in group['pivot']) for e in group['pivot_codes']]+[sum(r['total'] for r in group['pivot'])],total)
         excluded=sheet('Analiz Dışı Kayıtlar',['Stok Kodu','Ay','Neden'])
         for i,r in enumerate((v for v in result['issues'] if v['code'].startswith(group['group'])),1):excluded.write_row(i,0,[r['code'],MONTHS[r['month']-1],r['reason']])
+    checks=[r for r in result.get('reconciliation',[]) if r['group']==group['group']]
+    if checks:
+        check=sheet('Kaynak Kontrolü',['Yıl','Ay','Fiş','Ana miktar (kaynak birimi)','Birleşik miktar (kaynak birimi)','Net ek miktar (kaynak birimi)','Kaynak dosya'])
+        for i,r in enumerate(checks,1):check.write_row(i,0,[r['year'],MONTHS[r['month']-1],r['voucher'],r['original_qty'],r['combined_qty'],r['net_added_qty'],r['source']])
+        check.set_column(3,5,25,num);check.set_column(6,6,30)
+        check.write(len(checks)+2,0,'Birleşik tablo ana miktarı zaten içerir. Ana kayıtlar tekrar eklenmedi.')
+        check.write(len(checks)+3,0,'Kaynak miktarları, eksik verili stoklar hariç tutulmadan önceki miktarlardır.')
     book.close();data=output.getvalue()
     return add_pivot(data,rows,group['group'],pivot_index) if pivot_index else data
 

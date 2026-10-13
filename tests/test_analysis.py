@@ -1,6 +1,6 @@
 from copy import deepcopy
 import pytest
-from analysis_engine import analyze, voucher, resolve_mode, InputError, read_sheets
+from analysis_engine import analyze, voucher, resolve_mode, InputError, read_sheets, parse_file
 from pathlib import Path
 
 def row(stock='202100003-71',qty=10,month=9,error='16',voucher='Y',source='scrap'):
@@ -25,6 +25,44 @@ def test_additive_fragment_and_units():
     assert g['ppm']==25000
     assert g['cost_tl']==50
     assert g['pivot'][0]['errors']=={'16':25}
+
+def test_september_bulk_source_filters_dates_year_and_vouchers(monkeypatch):
+    import analysis_engine
+    header=['Stok Kodu','Miktar','Tarih','Fiş No','Hata Kodu','Birim','Ay','Yıl']
+    dates=[('31.08.2026',100000,'Y001'),('01.09.2026',10,'Y001'),
+           ('30.09.2026',15,'Y002'),('01.10.2026',200000,'Y003'),
+           ('01.09.2025',300000,'Y004'),('15.09.2026',400000,'Ç001')]
+    # Explicit conflicting Ay/Yıl must not override a valid transaction date.
+    rows=[header]+[['202100003-71',q,d,v,'16','MT',9,2026] for d,q,v in dates]
+    monkeypatch.setattr(analysis_engine,'read_sheets',lambda *a,**kw:{'Toplu':rows})
+    parsed=parse_file('bulk.xlsx','scrap')
+    f=fixture();f['scrap']=parsed;f['fragmented']=None
+    f['consumption']['records'].extend([
+        dict(code='202100003-71',year=2026,month=8,qty=800000),
+        dict(code='202100003-71',year=2026,month=10,qty=900000)])
+    f['costs']['records'].append(dict(code='202100003-71',year=2026,month=10,date='2026-10-31T00:00:00',tl=999,eur=999))
+    r=analyze(f,opts());g=r['groups'][0]
+    assert len(r['detail'])==2
+    assert {d['source_row'] for d in r['detail']}=={3,4}
+    assert all(d['year']==2026 and d['month']==9 and d['voucher']=='Y' for d in r['detail'])
+    assert g['stocks'][0]['scrap']==25 and g['stocks'][0]['consumption']==1000
+    assert g['cost_tl']==50 and g['ppm']==25000
+
+def test_fragmented_real_dates_take_priority_over_selected_fallback_month():
+    f=fixture()
+    f['fragmented']['records']=[row(qty=50000,month=8,source='fragmented'),
+        row(qty=5,month=9,source='fragmented'),row(qty=60000,month=10,source='fragmented')]
+    o=opts();o.update(fragment_year=2026,fragment_month=9)
+    r=analyze(f,o)
+    assert r['groups'][0]['stocks'][0]['scrap']==25
+    assert len([d for d in r['detail'] if d['source']=='fragmented'])==1
+
+def test_undated_fragmented_rows_are_added_to_selected_fallback_period():
+    f=fixture();f['fragmented']['records']=[dict(row(qty=5,source='fragmented'),year=0,month=0,date=None)]
+    o=opts();o.update(fragment_year=2026,fragment_month=9)
+    assert analyze(f,o)['groups'][0]['stocks'][0]['scrap']==25
+    o['fragment_month']=8
+    assert analyze(f,o)['groups'][0]['stocks'][0]['scrap']==20
 
 def test_missing_cost_gate_and_denominator_exclusion():
     f=fixture();f['scrap']['records'].append(row('202100004-71',100))
