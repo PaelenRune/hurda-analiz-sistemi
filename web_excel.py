@@ -9,7 +9,7 @@ import zipfile
 import threading
 from xml.etree import ElementTree as ET
 import xlsxwriter
-from analysis_engine import MONTHS, sort_error
+from analysis_engine import MONTHS, sort_error, DATA_LABELS
 
 MAIN='http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 REL='http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -123,14 +123,18 @@ def workbook(result,group,pareto=False):
     rows=[r for r in result['detail'] if r['code'].startswith(group['group'])]
     cable=group['group']=='202'
     if not pareto:
-        summary=sheet('GRAFİK VERİSİ',['Ay',f"Tüketim ({group['unit']})",f"Hurda ({group['unit']})",'PPM','Hedef PPM','Maliyet TL','Maliyet EUR'])
+        summary=sheet('GRAFİK VERİSİ',['Ay',f"Tüketim ({group['unit']})",f"Hurda ({group['unit']})",'PPM','Hedef PPM','Maliyet TL','Maliyet EUR','Veri durumu'])
         for i,m in enumerate(group['monthly'],1):
-            summary.write_row(i,0,[m['label'],m['consumption'],m['scrap'],m['ppm'],group['target'],m['cost_tl'],m['cost_eur']])
+            available=m.get('data_status','ok') not in ('no_source','no_scope','all_excluded')
+            summary.write_row(i,0,[m['label'],m['consumption'] if available else None,m['scrap'] if available else None,m['ppm'],group['target'],m['cost_tl'] if available else None,m['cost_eur'] if available else None,DATA_LABELS.get(m.get('data_status','ok'))])
         n=len(group['monthly'])
         summary.write(n+1,0,'TOPLAM',total)
-        for col in (1,2,5,6):
-            letter=xlsxwriter.utility.xl_col_to_name(col);value=sum(m[['','consumption','scrap','','','cost_tl','cost_eur'][col]] for m in group['monthly'])
-            summary.write_formula(n+1,col,f'=SUM({letter}2:{letter}{n+1})',total,value)
+        if group['stocks']:
+            for col in (1,2,5,6):
+                letter=xlsxwriter.utility.xl_col_to_name(col);value=sum(m[['','consumption','scrap','','','cost_tl','cost_eur'][col]] for m in group['monthly'])
+                summary.write_formula(n+1,col,f'=SUM({letter}2:{letter}{n+1})',total,value)
+        summary.write(n+1,7,DATA_LABELS.get(group.get('data_status','ok')))
+        summary.set_column(7,7,38)
         if group['consumption']:summary.write_formula(n+1,3,f'=C{n+2}/B{n+2}*1000000',total,group['ppm'])
         chart=book.add_chart({'type':'column'});chart.add_series({'name':'Tüketim','categories':['GRAFİK VERİSİ',1,0,n,0],'values':['GRAFİK VERİSİ',1,1,n,1]})
         line=book.add_chart({'type':'line'});line.add_series({'name':'Gerçekleşen PPM','categories':['GRAFİK VERİSİ',1,0,n,0],'values':['GRAFİK VERİSİ',1,3,n,3],'y2_axis':True,'marker':{'type':'circle','size':6}})
@@ -141,6 +145,8 @@ def workbook(result,group,pareto=False):
         if pareto:
             s=sheet(name,['Hata Kodu','Hata Açıklaması','Miktar ('+group['pareto_unit']+')','Pay','Kümülatif','Maliyet TL'])
             if month not in result['months']:continue
+            status=next(m.get('data_status','ok') for m in group['monthly'] if m['month']==month)
+            if status in ('no_source','no_scope','all_excluded'):s.write(1,7,DATA_LABELS[status])
             quantities=defaultdict(float);costs=defaultdict(float)
             stocks={v['code']:v for v in group['stocks'] if v['month']==month}
             for r in rows:
@@ -163,6 +169,9 @@ def workbook(result,group,pareto=False):
         else:
             headers=['Stok Kodu','Birim','Tüketim','Tüketim kg','Gramaj g/birim','Hurda','Hurda kg','Birim TL','Maliyet TL','Birim EUR','Maliyet EUR'] if cable else ['Stok Kodu','Birim','Tüketim','Hurda','Birim TL','Maliyet TL','Birim EUR','Maliyet EUR']
             s=sheet(name,headers);items=[v for v in group['stocks'] if v['month']==month]
+            if month in result['months'] and not items:
+                status=next(m.get('data_status','ok') for m in group['monthly'] if m['month']==month)
+                s.write(1,len(headers)+1,DATA_LABELS.get(status,'Analize uygun veri yok'))
             for i,v in enumerate(items,1):
                 r=i+1
                 if cable:
@@ -193,6 +202,11 @@ def workbook(result,group,pareto=False):
         check.set_column(3,5,25,num);check.set_column(6,6,30)
         check.write(len(checks)+2,0,'Birleşik tablo ana miktarı zaten içerir. Ana kayıtlar tekrar eklenmedi.')
         check.write(len(checks)+3,0,'Kaynak miktarları, eksik verili stoklar hariç tutulmadan önceki miktarlardır.')
+    period_check=sheet('Dönem Kontrolü',['Ay','Kaynak dosyadaki kayıtlar','Seçilen gruptaki kayıtlar','Analize giren kayıtlar','Veri durumu'])
+    for i,m in enumerate(group['monthly'],1):
+        source=next((c['source_rows'] for c in result.get('coverage',[]) if c['month']==m['month']),None)
+        period_check.write_row(i,0,[m['label'],source,m.get('source_rows'),m.get('eligible_rows'),DATA_LABELS.get(m.get('data_status','ok'))])
+    period_check.set_column(4,4,42)
     book.close();data=output.getvalue()
     return add_pivot(data,rows,group['group'],pivot_index) if pivot_index else data
 

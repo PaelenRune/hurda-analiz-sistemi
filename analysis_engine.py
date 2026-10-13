@@ -10,6 +10,7 @@ from pathlib import Path
 
 MONTHS = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık']
 GROUPS = {'202':'Kablo', '204':'Terminal', '206':'IDC'}
+DATA_LABELS={'no_source':'Kaynak dosyada bu dönem yok','no_scope':'Seçilen kapsamda hurda kaydı yok','all_excluded':'Tüm hurda kayıtları eksik veri nedeniyle çıkarıldı','partial':'Eksik veriler nedeniyle kısmi analiz','ok':'Veri kontrolü tamamlandı'}
 ERRORS = dict(enumerate(['Terminal Çakım Hatası','IDC Çakım Hatası','Kablo Boyu Hatalı','Taşıma Kaynaklı','Insertion Hatası','Potalama Kaynaklı','Tedarikçi Kaynaklı','Makara Sonu Firesi','Kablo Uç Açımı Hatalı','Yanlış Malzeme Kullanımı','Bıçak İzi','Ayar Firesi','İşçilik Firesi','Sipariş Fazlası Olarak Gelen Kablolar','Revizyon','Ezik / Kırık / Deformeli','Proje Kaynaklı','Operatör Hatası','Yanlış Onay','Elektriksel Test','Kilo Hatası','IDC Kesme Hurdası','Makina Kabul','Enjeksiyon','Fire','Diğer'],1))
 
 class InputError(ValueError): pass
@@ -303,6 +304,7 @@ def merge_scrap(inputs,options,year,months,groups,vouchers):
     return [r for r in main if key(r) not in controls]+extra,checks
 
 def analyze(inputs,options):
+    if options.get('no_fragment') is True:inputs={**inputs,'fragmented':None}
     year=int(options['year']);months=sorted(set(int(m) for m in options['months']))
     groups=list(dict.fromkeys(options['groups']));vouchers=list(dict.fromkeys(options['vouchers']))
     if not 2000<=year<=2100 or not months or any(m<1 or m>12 for m in months): raise InputError('Geçerli yıl ve ay seçin.')
@@ -357,6 +359,13 @@ def analyze(inputs,options):
             modes.append({'month':month,'mode':mode,'note':note,'assigned_count':sum(not r['error'] for r in rows)})
         for r in rows:
             rr=dict(r);rr['original_error']=rr['error'];rr['assigned']=not bool(rr['error']);rr['error']=rr['error'] or mode or 'Belirsiz';processed.append(rr)
+    coverage=[]
+    for month in months:
+        source_rows=sum(r['year']==year and r['month']==month for r in all_rows)
+        selected_rows=sum(r['month']==month for r in current)
+        eligible_rows=sum(r['month']==month for r in processed)
+        status='no_source' if not source_rows else 'no_scope' if not selected_rows else 'all_excluded' if not eligible_rows else 'partial' if eligible_rows<selected_rows else 'ok'
+        coverage.append(dict(month=month,source_rows=source_rows,selected_rows=selected_rows,eligible_rows=eligible_rows,excluded_rows=selected_rows-eligible_rows,status=status))
     results=[]
     for group in groups:
         cable_in_metres=group!='202' or all(r['unit']=='MT' for r in processed if r['code'].startswith(group))
@@ -374,12 +383,17 @@ def analyze(inputs,options):
                 month_stocks.append(item);stocks[(month,stock)]=item
             scrap=sum(i['scrap_kg'] if group=='202' else i['scrap'] for i in month_stocks)
             consumed=sum(i['consumption_kg'] if group=='202' else i['consumption'] for i in month_stocks)
-            monthly.append({'month':month,'label':MONTHS[month-1],'scrap':scrap,'consumption':consumed,'ppm':scrap/consumed*1e6 if consumed>0 else None,'cost_tl':sum(i['cost_tl'] for i in month_stocks),'cost_eur':sum(i['cost_eur'] for i in month_stocks),'stock_count':len(month_stocks)})
+            source_rows=sum(r['month']==month and r['code'].startswith(group) for r in current)
+            file_rows=next(c['source_rows'] for c in coverage if c['month']==month)
+            status='no_source' if not file_rows else 'no_scope' if not source_rows else 'all_excluded' if not rows else 'partial' if len(rows)<source_rows else 'ok'
+            monthly.append({'month':month,'label':MONTHS[month-1],'scrap':scrap,'consumption':consumed,'ppm':scrap/consumed*1e6 if consumed>0 else None,'cost_tl':sum(i['cost_tl'] for i in month_stocks),'cost_eur':sum(i['cost_eur'] for i in month_stocks),'stock_count':len(month_stocks),'source_rows':source_rows,'eligible_rows':len(rows),'data_status':status})
         total_scrap=sum(i['scrap'] for i in monthly);total_consumption=sum(i['consumption'] for i in monthly)
         if stocks and not total_consumption:warnings.append(f'{GROUPS[group]}: tüketim toplamı sıfır; miktar ve maliyet hesaplandı, PPM hesaplanamaz.')
         error_codes=sorted(pareto,key=sort_error);cum=0;pareto_rows=[];pq=sum(pareto.values())
         for error,qty in sorted(pareto.items(),key=lambda x:(-x[1],sort_error(x[0]))):
             share=qty/pq if pq else 0;cum+=share
             pareto_rows.append({'error':error,'description':ERRORS.get(int(error),'Tanımsız hata kodu') if str(error).isdigit() else error,'qty':qty,'share':share,'cumulative':cum})
-        results.append({'group':group,'name':GROUPS[group],'unit':'kg' if group=='202' else 'adet','qty_unit':('metre' if cable_in_metres else 'kaynak birimi') if group=='202' else 'adet','pareto_unit':('metre' if cable_in_metres else 'kg') if group=='202' else 'adet','stocks':list(stocks.values()),'monthly':monthly,'pivot_codes':error_codes,'pivot':[{'code':stock,'errors':dict(errors),'total':sum(errors.values())} for stock,errors in sorted(pivot.items())],'pareto':pareto_rows,'scrap':total_scrap,'consumption':total_consumption,'ppm':total_scrap/total_consumption*1e6 if total_consumption else None,'cost_tl':sum(i['cost_tl'] for i in monthly),'cost_eur':sum(i['cost_eur'] for i in monthly),'target':numeric(options.get('targets',{}).get(group))})
-    return {'requires_confirmation':False,'year':year,'months':months,'vouchers':vouchers,'groups':results,'modes':modes,'issues':issues,'warnings':warnings,'reconciliation':reconciliation,'excluded_rows':len(excluded),'detail':processed,'sources':{role:inp['filename'] for role,inp in inputs.items() if inp},'created':datetime.now().isoformat(timespec='seconds')}
+        statuses={m['data_status'] for m in monthly}
+        status=('partial' if statuses-{'ok','no_scope'} else 'ok') if stocks else 'all_excluded' if 'all_excluded' in statuses else 'no_scope' if statuses-{'no_source'} else 'no_source'
+        results.append({'group':group,'name':GROUPS[group],'unit':'kg' if group=='202' else 'adet','qty_unit':('metre' if cable_in_metres else 'kaynak birimi') if group=='202' else 'adet','pareto_unit':('metre' if cable_in_metres else 'kg') if group=='202' else 'adet','stocks':list(stocks.values()),'monthly':monthly,'pivot_codes':error_codes,'pivot':[{'code':stock,'errors':dict(errors),'total':sum(errors.values())} for stock,errors in sorted(pivot.items())],'pareto':pareto_rows,'scrap':total_scrap,'consumption':total_consumption,'ppm':total_scrap/total_consumption*1e6 if total_consumption else None,'cost_tl':sum(i['cost_tl'] for i in monthly),'cost_eur':sum(i['cost_eur'] for i in monthly),'data_status':status,'target':numeric(options.get('targets',{}).get(group))})
+    return {'requires_confirmation':False,'year':year,'months':months,'vouchers':vouchers,'groups':results,'modes':modes,'issues':issues,'warnings':warnings,'coverage':coverage,'reconciliation':reconciliation,'excluded_rows':len(excluded),'detail':processed,'sources':{role:inp['filename'] for role,inp in inputs.items() if inp},'created':datetime.now().isoformat(timespec='seconds')}
