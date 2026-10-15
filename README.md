@@ -4,7 +4,7 @@ xxx firmasına özelleştirilmiş bir analiz aracı.
 
 **Özel mülkiyet — tüm hakları saklıdır.** Hak sahibinin yazılı izni olmadan kullanım, değiştirme ve dağıtım yasaktır. Ayrıntılar `LICENSE` dosyasındadır.
 
-Beş Excel girdisi üzerinden Y / Ç / HRD fişlerini ve 202 / 204 / 206 stoklarını yıl ve ay bazında analiz eder. PPM, malzeme maliyeti, hata kodu pivotu, Pareto ve PDF/PNG grafik aktarımı içerir. Hesap kuralları `KURULUM.md` içindedir.
+Dört Excel girdisi (Ana Hurda, Tüketim, Gramaj ve Maliyet) üzerinden Y / Ç / HRD fişlerini ve 202 / 204 / 206 stoklarını yıl ve ay bazında analiz eder. PPM, malzeme maliyeti, hata kodu pivotu, Pareto ve PDF/PNG grafik aktarımı içerir. Hesap kuralları `KURULUM.md` içindedir.
 
 ## Web yayını
 

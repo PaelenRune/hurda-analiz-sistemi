@@ -4,9 +4,8 @@
 <aside class="sidebar">
  <a class="brand" href="/"><span class="brand-mark">h.</span><span>Hurda<span class="brand-sub">ANALİZ ÇALIŞMA ALANI</span></span></a>
  <div class="step-label">01 / VERİ KAYNAKLARI</div>
- <h2>Girdileri yükle</h2><p class="muted">Beş kaynağı ayrı alanlara ekleyin.<br>XLS ve XLSX desteklenir.</p>
+ <h2>Girdileri yükle</h2><p class="muted">Dört kaynağı ayrı alanlara ekleyin.<br>XLS ve XLSX desteklenir.</p>
  <div id="uploads"></div>
- <label class="no-fragment"><input type="checkbox" id="no-fragment"> Bu dönem parçalanmış hurda yok</label>
  <div id="upload-notes" class="small muted"></div>
  <div class="privacy"><span class="status-dot"></span> Oturum içinde çalışır<p>Girdiler kalıcı hafızaya kaydedilmez. Excel çıktısı yalnızca dışa aktardığınızda oluşturulur.</p></div>
  <button id="reset" class="text-button">Oturumu temizle</button>
@@ -18,14 +17,11 @@
   <div class="section-top"><div><div class="step-label">02 / ANALİZ KAPSAMI</div><h2>Dönem ve filtreler</h2></div><span class="small muted">Yalnızca malzeme maliyeti</span></div>
   <div class="filter-grid"><label class="field">Yıl<input id="year" type="number" min="2000" max="2100" value="2026"></label><div><span class="field-label">Fiş grupları</span><div class="chips" id="voucher-filters"></div></div><div><span class="field-label">Stok grupları</span><div class="chips" id="group-filters"></div></div></div>
   <span class="field-label">Aylar</span><div class="months" id="month-filters"></div>
-  <details class="advanced"><summary>Parçalanmış veri dönemi ve PPM hedefleri</summary><div class="advanced-grid">
-   <label class="field">Parçalanmış veri yılı<input id="fragment-year" type="number" value="2026"></label>
-   <label class="field">Parçalanmış veri ayı<select id="fragment-month"></select></label>
-   <label class="field">Fiş grubu yoksa<select id="fragment-voucher"><option>Y</option><option>Ç</option><option>HRD</option></select></label>
+  <details class="advanced"><summary>PPM hedefleri</summary><div class="advanced-grid">
    <label class="field">Kablo hedef PPM<input id="target-202" type="number" min="0" placeholder="İsteğe bağlı"></label>
    <label class="field">Terminal hedef PPM<input id="target-204" type="number" min="0" placeholder="İsteğe bağlı"></label>
    <label class="field">IDC hedef PPM<input id="target-206" type="number" min="0" placeholder="İsteğe bağlı"></label>
-  </div><p class="small muted">Dosyadaki dönem ve fiş bilgileri önceliklidir. Bu seçimler yalnızca eksik alanlar için kullanılır. Hedefler girilmezse hedef çizgisi gösterilmez.</p></details>
+  </div><p class="small muted">Hedefler girilmezse hedef çizgisi gösterilmez.</p></details>
   <div class="filter-footer"><span id="scope-label" class="small muted">Girdilerinizi yükleyerek başlayın.</span><button id="analyze" class="primary">Analizi başlat <span>↗</span></button></div>
  </section>
  <div id="notice" role="status" hidden></div>

@@ -80,8 +80,8 @@ def test_rejected_analysis_options_clear_previous_exportable_result():
     a=app.test_client();a.get('/api/state')
     with a.session_transaction() as s:STATE[s['id']]['inputs']=fixture()
     assert a.post('/api/analyze',json=opts()).status_code==200
-    with a.session_transaction() as s:STATE[s['id']]['inputs'].pop('fragmented')
-    assert a.post('/api/analyze',json=opts()).status_code==400
+    invalid=opts();invalid['months']=[]
+    assert a.post('/api/analyze',json=invalid).status_code==400
     assert a.get('/api/state').json['has_result'] is False
 
 def mixed_fixture():

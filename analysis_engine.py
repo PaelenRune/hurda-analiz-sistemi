@@ -211,10 +211,19 @@ def parse_file(path,role,filename=None):
             if factor is not None: records.append({'code':stock,'grams':factor*(1000 if target=='KG' else 1),'unit':origin})
     else:
         required=[['Stok Kodu'],['Birim Malzeme Maliyet (TL)','Birim Malzeme Maliyeti (TL)']] if role=='costs' else [['Stok Kodu'],['Miktar','Toplam Miktar']]
-        name,rows,start,h=find_table(sheets,required,'HURDA') if role=='fragmented' else find_unique_table(sheets,required)
+        summary=role=='scrap' and any(norm(n)=='HURDA' for n in sheets)
+        if summary:table=find_unique_table({n:r for n,r in sheets.items() if norm(n)=='HURDA'},required)
+        elif role=='fragmented':table=find_table(sheets,required,'HURDA')
+        else:table=find_unique_table(sheets,required)
+        name,rows,start,h=table
         if role=='fragmented' and norm(name)!='HURDA':name,rows,start,h=find_unique_table(sheets,required)
         if role in ('scrap','fragmented'):
             records=scrap_records(name,rows,start,h,hint,role)
+            if summary and norm(name)=='HURDA':
+                if any(not r['voucher'] for r in records):
+                    controls=combined_baseline(sheets,name,records,hint)
+                    if not controls:raise InputError('Ana HURDA tablosunda fiş grubu yok; kaynak fiş bilgilerini dosyada belirtin.')
+                warnings.append('Ana kaynak HURDA sayfasıdır. Diğer sayfaların miktarları ayrıca eklenmez.')
             if role=='fragmented':
                 baseline=combined_baseline(sheets,name,records,hint)
                 if baseline:warnings.append('Birleşik HURDA tablosu tespit edildi. Ana dosyayla kaynak miktarları doğrulanarak çift sayım önlenecek.')
@@ -315,6 +324,7 @@ def analyze(inputs,options):
     if not isinstance(options,dict):raise InputError('Analiz seçimleri bir nesne olarak gönderilmelidir.')
     for field in ('no_fragment','skip_missing'):
         if field in options and not isinstance(options[field],bool):raise InputError(f'{field}: evet/hayır seçimi geçersiz.')
+    if options.get('main_only') is True:inputs={role:value for role,value in inputs.items() if role!='fragmented'}
     if options.get('no_fragment') is True:inputs={**inputs,'fragmented':None}
     year=integer(options['year'],'Yıl',2000,2100);months=sorted(set(integer(m,'Ay',1,12) for m in options['months']))
     groups=list(dict.fromkeys(options['groups']));vouchers=list(dict.fromkeys(options['vouchers']))

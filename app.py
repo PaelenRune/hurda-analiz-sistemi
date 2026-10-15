@@ -30,7 +30,7 @@ if WEB_MODE and (not os.environ.get('SECRET_KEY') or not app.config['PASSWORD_HA
     raise RuntimeError('Web ortamında SECRET_KEY ve APP_PASSWORD_HASH zorunludur.')
 STATE={};LOCK=threading.RLock()
 LOGIN_ATTEMPTS={}
-ROLES={'scrap','consumption','weights','costs','fragmented'}
+ROLES={'scrap','consumption','weights','costs'}
 
 def csrf_token():
     if not app.config['WEB_MODE']:return ''
@@ -136,7 +136,7 @@ def index():return render_template('index.html',web_mode=app.config['WEB_MODE'])
 @app.get('/api/state')
 def status():
     s=state()
-    return jsonify(files={k:{'filename':v['filename'],'count':len(v['records']),'warnings':v['warnings'],'hint':v['hint']} for k,v in s['inputs'].items()},has_result=bool(s['result']))
+    return jsonify(files={k:{'filename':v['filename'],'count':len(v['records']),'warnings':v['warnings'],'hint':v['hint']} for k,v in s['inputs'].items() if k in ROLES},has_result=bool(s['result']))
 
 @app.post('/api/upload/<role>')
 def upload(role):
@@ -153,6 +153,7 @@ def upload(role):
 
 @app.delete('/api/upload/<role>')
 def remove(role):
+    if role not in ROLES:raise InputError('Geçersiz girdi türü.')
     with LOCK:s=state();s['inputs'].pop(role,None);s['result']=None;s['revision']=s.get('revision',0)+1
     return jsonify(ok=True)
 
@@ -160,11 +161,11 @@ def remove(role):
 def run():
     options=request.get_json() or {}
     with LOCK:
-        s=state();inputs=dict(s['inputs']);sid=session['id']
+        s=state();inputs={k:v for k,v in s['inputs'].items() if k in ROLES};sid=session['id']
         s['result']=None;s['revision']=s.get('revision',0)+1;revision=s['revision']
     if not isinstance(options,dict):raise InputError('Analiz seçimleri geçersiz.')
+    options={**options,'main_only':True}
     if not {'scrap','consumption','weights','costs'}<=inputs.keys():raise InputError('Hurdalar, Tüketim, Gramaj ve Maliyet dosyalarını yükleyin.')
-    if not inputs.get('fragmented') and not options.get('no_fragment'):raise InputError('Parçalanmış hurda dosyasını yükleyin veya bu dönem için parçalanmış hurda olmadığını işaretleyin.')
     try:result=analyze(inputs,options)
     except (KeyError,TypeError,ValueError) as exc:
         if isinstance(exc,InputError):raise
