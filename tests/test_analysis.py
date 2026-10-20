@@ -78,6 +78,15 @@ def test_latest_cost_and_real_zero():
     f=fixture();f['costs']['records'].append(dict(code='202100003-71',year=2026,month=9,date='2026-09-30T00:00:00',tl=0,eur=0))
     assert analyze(f,opts())['groups'][0]['cost_tl']==0
 
+def test_cost_falls_back_to_latest_prior_period():
+    f=fixture()
+    f['costs']['records']=[r for r in f['costs']['records'] if r['code']!='202100003-71']
+    f['costs']['records'].append(dict(code='202100003-71',year=2026,month=8,date='2026-08-25T00:00:00',tl=1.9,eur=0.034))
+    o=opts();o['groups']=['202']
+    r=analyze(f,o)
+    # Total scrap for 202100003-71 is 10 + 10 (main) + 5 (fragmented) = 25
+    assert r['groups'][0]['cost_tl']==25*1.9
+
 def test_conflicting_latest_cost_does_not_pick_arbitrarily():
     f=fixture();f['costs']['records'].append(dict(code='202100003-71',year=2026,month=9,date='2026-09-20T00:00:00',tl=9,eur=.04))
     with pytest.raises(InputError,match='Son tarihte'):analyze(f,opts())

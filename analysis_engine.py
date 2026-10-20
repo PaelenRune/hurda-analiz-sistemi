@@ -358,6 +358,16 @@ def analyze(inputs,options):
     excluded=[];eligible=[];missing={}
     for r in current:
         key=(r['code'],year,r['month']);rate=rates.get(key)
+        if not rate:
+            prior=[c for c in inputs['costs']['records'] if c['code']==r['code'] and (c['year']<year or (c['year']==year and c['month']<=r['month'])) and c.get('date')]
+            if prior:
+                latest_date=max(c['date'] for c in prior)
+                same=[c for c in prior if c['date']==latest_date]
+                choices={(c['tl'],c['eur']) for c in same}
+                if len(choices)>1 and key in active_keys:
+                    conflicts.append({'code':key[0],'month':key[2],'date':latest_date})
+                rate=same[-1]
+                rates[key]=rate
         reasons=[]
         if not rate or rate['tl'] is None or rate['eur'] is None:reasons.append('TL/EUR birim malzeme maliyeti eksik')
         if key not in consumption:reasons.append('Tüketim eksik')
